@@ -4,17 +4,17 @@ crawl_hmong_dict.py
 Xây dựng từ điển Việt–H'Mông từ 2 nguồn:
 
 1. Wiktionary (White Hmong / mww) — ~825 lemmas có sẵn
-   → Crawl định nghĩa tiếng Anh → dịch sang tiếng Việt
+    → Crawl định nghĩa tiếng Anh → dịch sang tiếng Việt
 
 2. Gemini API — sinh từ vựng cơ bản trong SGK tiểu học
-   → ~500 từ thông dụng nhất (số, màu, gia đình, thiên nhiên...)
+    → ~500 từ thông dụng nhất (số, màu, gia đình, thiên nhiên...)
 
 Output:
     data/hmong_viet_dict.json  — dict {hmong_word: {vi: str, en: str, category: str}}
     data/hmong_viet_dict.jsonl — dạng chunks để nạp vào Qdrant
 
 Cách dùng:
-    pip install requests tqdm google-generativeai
+    pip install requests tqdm google-genai
     export GEMINI_API_KEY=your_key
     python crawl_hmong_dict.py --wiktionary   # Chỉ crawl Wiktionary
     python crawl_hmong_dict.py --gemini       # Chỉ dùng Gemini
@@ -42,6 +42,7 @@ DELAY = 0.5
 
 
 # ── PHẦN 1: Crawl Wiktionary ──────────────────────────────────────────────────
+
 
 def get_all_hmong_lemmas() -> list[str]:
     """Lấy toàn bộ White Hmong lemmas từ Wiktionary (khoảng 825 từ)."""
@@ -81,8 +82,7 @@ def parse_hmong_entry(wikitext: str) -> dict | None:
     """
     # Tìm section White Hmong
     hmong_section = re.search(
-        r"==White Hmong==(.*?)(?:^==[^=]|\Z)",
-        wikitext, re.S | re.M
+        r"==White Hmong==(.*?)(?:^==[^=]|\Z)", wikitext, re.S | re.M
     )
     if not hmong_section:
         return None
@@ -144,32 +144,40 @@ def translate_en_to_vi_batch(entries: list[dict]) -> list[dict]:
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("   ⚠ Không có GEMINI_API_KEY — bỏ qua bước dịch, giữ định nghĩa tiếng Anh")
+        print(
+            "   ⚠ Không có GEMINI_API_KEY — bỏ qua bước dịch, giữ định nghĩa tiếng Anh"
+        )
         for e in entries:
             e["vi"] = e["en"]  # fallback
         return entries
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
     except ImportError:
-        print("   pip install google-generativeai")
+        print("   pip install google-genai")
         for e in entries:
             e["vi"] = e["en"]
         return entries
 
     BATCH = 20
     for i in tqdm(range(0, len(entries), BATCH), desc="  Dịch sang tiếng Việt"):
-        batch = entries[i:i + BATCH]
-        lines = "\n".join(f'{j+1}. "{e["hmong"]}" = {e["en"]}' for j, e in enumerate(batch))
+        batch = entries[i : i + BATCH]
+        lines = "\n".join(
+            f'{j + 1}. "{e["hmong"]}" = {e["en"]}' for j, e in enumerate(batch)
+        )
         prompt = f"""Dịch các định nghĩa tiếng Anh sau sang tiếng Việt ngắn gọn (1-5 từ mỗi nghĩa).
 Đây là từ vựng tiếng H'Mông dùng trong giáo dục tiểu học Việt Nam.
 Trả lời chỉ JSON array, không giải thích: [{{"vi": "..."}}, ...]
 
 {lines}"""
         try:
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt
+            )
+            if not response.text:
+                raise ValueError("Empty response from Gemini")
             text = response.text.strip()
             text = re.sub(r"```json|```", "", text).strip()
             translations = json.loads(text)
@@ -227,9 +235,9 @@ def generate_hmong_vocab_gemini(category: str, description: str) -> list[dict]:
         return []
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
     except ImportError:
         return []
 
@@ -244,7 +252,11 @@ Chú ý: Dùng hệ thống chính tả RPA (Romanized Popular Alphabet) chuẩn
 Chỉ trả JSON array, không giải thích. Khoảng 15-25 từ."""
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash", contents=prompt
+        )
+        if not response.text:
+            raise ValueError("Empty response from Gemini")
         text = response.text.strip()
         text = re.sub(r"```json|```", "", text).strip()
         entries = json.loads(text)
@@ -270,9 +282,10 @@ def generate_with_gemini() -> list[dict]:
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
-def merge_and_save(wiktionary_entries: list[dict],
-                   gemini_entries: list[dict],
-                   output_dir: str = "data"):
+
+def merge_and_save(
+    wiktionary_entries: list[dict], gemini_entries: list[dict], output_dir: str = "data"
+):
     """Merge, dedup, lưu file."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -284,22 +297,21 @@ def merge_and_save(wiktionary_entries: list[dict],
         hmong_word = entry.get("hmong", "").strip().lower()
         if hmong_word and hmong_word not in seen_hmong:
             seen_hmong.add(hmong_word)
-            all_entries.append({
-                "hmong": entry.get("hmong", ""),
-                "vi": entry.get("vi", entry.get("en", "")),
-                "en": entry.get("en", ""),
-                "pos": entry.get("pos", "unknown"),
-                "category": entry.get("category", "wiktionary"),
-                "source": "wiktionary" if "pos" in entry else "gemini",
-            })
+            all_entries.append(
+                {
+                    "hmong": entry.get("hmong", ""),
+                    "vi": entry.get("vi", entry.get("en", "")),
+                    "en": entry.get("en", ""),
+                    "pos": entry.get("pos", "unknown"),
+                    "category": entry.get("category", "wiktionary"),
+                    "source": "wiktionary" if "pos" in entry else "gemini",
+                }
+            )
 
     # Lưu JSON dict
     dict_path = f"{output_dir}/hmong_viet_dict.json"
     with open(dict_path, "w", encoding="utf-8") as f:
-        json.dump(
-            {e["hmong"]: e for e in all_entries},
-            f, ensure_ascii=False, indent=2
-        )
+        json.dump({e["hmong"]: e for e in all_entries}, f, ensure_ascii=False, indent=2)
 
     # Lưu JSONL chunks để nạp vào Qdrant
     chunks_path = f"{output_dir}/hmong_viet_chunks.jsonl"
@@ -337,8 +349,10 @@ def merge_and_save(wiktionary_entries: list[dict],
 
     print("\n📊 Thống kê:")
     print("  Nguồn:", dict(sorted(by_source.items())))
-    print("  Chủ đề (top 10):", dict(list(sorted(by_cat.items(),
-                                                   key=lambda x: -x[1]))[:10]))
+    print(
+        "  Chủ đề (top 10):",
+        dict(list(sorted(by_cat.items(), key=lambda x: -x[1]))[:10]),
+    )
 
 
 def main():

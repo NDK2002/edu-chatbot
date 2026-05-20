@@ -1,42 +1,52 @@
 import os
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-import google.generativeai as genai
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+from google import genai
+from google.genai import types
 
-QDRANT_HOST  = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT  = int(os.getenv("QDRANT_PORT", 6333))
-COLLECTION   = os.getenv("QDRANT_COLLECTION", "edu_kb")
-THRESHOLD    = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.82))
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+COLLECTION  = os.getenv("QDRANT_COLLECTION", "edu_kb")
+THRESHOLD   = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.82))
 
-_client = None
+_qdrant: QdrantClient | None = None
+_genai_client: genai.Client | None = None
 
-def get_client() -> QdrantClient:
-    global _client
-    if _client is None:
-        _client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-    return _client
+
+def _get_qdrant() -> QdrantClient:
+    global _qdrant
+    if _qdrant is None:
+        _qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    return _qdrant
+
+
+def _get_genai() -> genai.Client:
+    global _genai_client
+    if _genai_client is None:
+        _genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _genai_client
+
 
 async def embed(text: str) -> list[float]:
-    """Tạo embedding bằng Gemini embedding model."""
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=text,
-        task_type="retrieval_query",
+    """Tạo embedding bằng Gemini text-embedding-004."""
+    client = _get_genai()
+    result = client.models.embed_content(
+        model="text-embedding-004",
+        contents=text,
+        config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
     )
-    return result["embedding"]
+    return list(result.embeddings[0].values)
+
 
 async def search(query: str, grade: int = 0, top_k: int = 3) -> dict | None:
     """
     Tìm kiếm trong Qdrant. Trả về kết quả tốt nhất nếu score >= THRESHOLD.
     """
     vector = await embed(query)
-    client = get_client()
+    client = _get_qdrant()
 
-    # Filter theo lớp nếu có
     query_filter = None
     if grade > 0:
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
         query_filter = Filter(
             must=[FieldCondition(key="grade", match=MatchValue(value=grade))]
         )

@@ -18,3 +18,8 @@ docker/volumes/
 # OS
 .DS_Store
 Thumbs.db
+
+# Project
+KeHoachTrienKhai_ChatbotGiaoDuc_v2.html
+pyrightconfig.json
+.vscode

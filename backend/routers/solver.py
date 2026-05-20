@@ -4,13 +4,16 @@ from sympy import sympify, SympifyError
 
 router = APIRouter()
 
+
 class SolverRequest(BaseModel):
-    expression: str   # vd: "3 * 4", "12 / 3", "15 + 27"
+    expression: str  # vd: "3 * 4", "12 / 3", "15 + 27"
+
 
 class SolverResponse(BaseModel):
     result: str
     steps: list[str]
     error: str | None = None
+
 
 @router.post("/", response_model=SolverResponse)
 def solve(req: SolverRequest):
