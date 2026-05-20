@@ -11,7 +11,7 @@ echo "=== 2. Check .env ==="
 if [ ! -f .env ]; then
     cp .env.example .env
     echo "⚠ No .env — copied from .env.example"
-    echo "  → Mở .env, điền GEMINI_API_KEY rồi chạy lại script này"
+    echo "  → Open .env, fill GEMINI_API_KEY then run this script again"
     exit 1
 fi
 
