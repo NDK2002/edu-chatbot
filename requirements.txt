@@ -1,0 +1,27 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# AI / LLM
+langchain==0.2.0
+langchain-google-genai==1.0.3
+google-generativeai==0.5.4
+
+# Vector DB
+qdrant-client==1.9.1
+
+# Cache
+redis==5.0.4
+
+# Math solver
+sympy==1.12
+
+# Data crawl (chạy local, không cần trong Docker)
+requests==2.31.0
+beautifulsoup4==4.12.3
+tqdm==4.66.4
+
+# Utils
+python-dotenv==1.0.1
+pydantic==2.7.1
+httpx==0.27.0
