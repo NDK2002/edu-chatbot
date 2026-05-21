@@ -13,74 +13,82 @@ import json
 import os
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-import google.generativeai as genai
+from qdrant_client.models import Distance, VectorParams, PointStruct, PayloadSchemaType
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
-COLLECTION  = os.getenv("QDRANT_COLLECTION", "edu_kb")
-VECTOR_DIM  = 768   # text-embedding-004
+load_dotenv()
 
-def embed_batch(texts: list[str]) -> list[list[float]]:
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    results = []
-    for text in texts:
-        r = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
-            task_type="retrieval_document",
-        )
-        results.append(r["embedding"])
-        time.sleep(0.1)  # tránh rate limit
-    return results
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+COLLECTION = os.getenv("QDRANT_COLLECTION", "edu_kb")
+VECTOR_DIM = 3072
+
+embeddings = GoogleGenerativeAIEmbeddings(
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    model="gemini-embedding-001",
+    task_type="retrieval_document",
+)
+
 
 def ingest(input_path: str):
-    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
-    # Tạo collection nếu chưa có
+    # Create collection if not exists
     existing = [c.name for c in client.get_collections().collections]
     if COLLECTION not in existing:
         client.create_collection(
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
         )
-        print(f"✅ Tạo collection: {COLLECTION}")
+        print(f"✅ Created collection: {COLLECTION}")
 
-    # Đọc chunks
+    client.create_payload_index(
+        collection_name=COLLECTION,
+        field_name="grade",
+        field_schema=PayloadSchemaType.INTEGER,
+    )
+
+    # Read chunks
     chunks = []
     with open(input_path, encoding="utf-8") as f:
         for line in f:
             chunks.append(json.loads(line))
-    print(f"📄 {len(chunks)} chunks từ {input_path}")
+    print(f"📄 {len(chunks)} chunks from {input_path}")
 
-    # Upsert theo batch 50
+    # Upsert in batches of 50
     BATCH = 50
     for i in range(0, len(chunks), BATCH):
-        batch = chunks[i:i+BATCH]
+        batch = chunks[i : i + BATCH]
         texts = [c["content"] for c in batch]
-        vectors = embed_batch(texts)
+
+        vectors = embeddings.embed_documents(texts)
+
+        time.sleep(2)
 
         points = [
             PointStruct(
                 id=abs(hash(c["id"])) % (10**9),
                 vector=v,
                 payload={
-                    "id":         c["id"],
-                    "title":      c.get("title", ""),
-                    "content":    c["content"],
-                    "subject":    c.get("subject", ""),
-                    "grade":      c.get("grade", 0),
+                    "id": c["id"],
+                    "title": c.get("title", ""),
+                    "content": c["content"],
+                    "subject": c.get("subject", ""),
+                    "grade": c.get("grade", 0),
                     "source_url": c.get("source_url", ""),
                 },
             )
             for c, v in zip(batch, vectors)
         ]
         client.upsert(collection_name=COLLECTION, points=points)
-        print(f"  ↑ {i+len(batch)}/{len(chunks)}")
+        print(f"  ↑ {i + len(batch)}/{len(chunks)}")
 
-    print(f"🎉 Hoàn tất ingest {len(chunks)} chunks vào Qdrant")
+    print(f"🎉 Completed ingest {len(chunks)} chunks into Qdrant")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

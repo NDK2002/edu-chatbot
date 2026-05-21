@@ -12,14 +12,14 @@ Cách dùng:
 Output:
     data/sgk_chunks.jsonl  — mỗi dòng là 1 chunk JSON:
     {
-      "id": "toan3-kntt-p16-c1",
-      "title": "Toán lớp 3 trang 16 - Bảng nhân 3, bảng chia 3",
-      "content": "...",
-      "subject": "toan",
-      "grade": 3,
-      "book_series": "ket-noi-tri-thuc",
-      "source_url": "https://loigiaihay.com/...",
-      "char_count": 512
+        "id": "toan3-kntt-p16-c1",
+        "title": "Toán lớp 3 trang 16 - Bảng nhân 3, bảng chia 3",
+        "content": "...",
+        "subject": "toan",
+        "grade": 3,
+        "book_series": "ket-noi-tri-thuc",
+        "source_url": "https://loigiaihay.com/...",
+        "char_count": 512
     }
 """
 
@@ -29,13 +29,14 @@ import time
 import argparse
 import os
 from pathlib import Path
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 try:
     import requests
     from bs4 import BeautifulSoup
     from tqdm import tqdm
 except ImportError:
-    print("Cài dependencies trước: pip install requests beautifulsoup4 tqdm")
+    print("Install dependencies: pip install requests beautifulsoup4 tqdm")
     raise
 
 BASE_URL = "https://loigiaihay.com"
@@ -44,24 +45,29 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "vi-VN,vi;q=0.9",
 }
-DELAY = 1.2  # giây giữa mỗi request — lịch sự với server
+DELAY = 1.2  # seconds between requests
 
-# ── Danh mục SGK cần crawl ────────────────────────────────────────────────────
+# ── SGK catalog ────────────────────────────────────────────────────
 # Format: (subject_key, grade, book_series, category_url)
 SGK_CATALOG = [
-    # Toán — Kết nối tri thức
+    # Math — Knowledge Connection
     ("toan", 1, "ket-noi-tri-thuc", "/sgk-toan-1-ket-noi-tri-thuc-c1139.html"),
-    ("toan", 2, "ket-noi-tri-thuc", "/sgk-toan-2-ket-noi-tri-thuc-c813.html"),   # placeholder — cần verify
+    (
+        "toan",
+        2,
+        "ket-noi-tri-thuc",
+        "/sgk-toan-2-ket-noi-tri-thuc-c813.html",
+    ),
     ("toan", 3, "ket-noi-tri-thuc", "/sgk-toan-3-ket-noi-tri-thuc-c813.html"),
     ("toan", 4, "ket-noi-tri-thuc", "/sgk-toan-4-ket-noi-tri-thuc-c1398.html"),
     ("toan", 5, "ket-noi-tri-thuc", "/sgk-toan-5-ket-noi-tri-thuc-c1728.html"),
-    # Tiếng Việt — Kết nối tri thức (thêm sau khi verify URL)
+    # Vietnamese — Knowledge Connection (add after verifying URL)
     # ("tieng-viet", 3, "ket-noi-tri-thuc", "/sgk-tieng-viet-3-ket-noi-tri-thuc-cXXX.html"),
 ]
 
 
 def get_soup(url: str) -> BeautifulSoup | None:
-    """Fetch một trang và trả về BeautifulSoup. Retry 2 lần nếu lỗi."""
+    """Fetch a page and return BeautifulSoup. Retry 2 times if error."""
     full_url = url if url.startswith("http") else BASE_URL + url
     for attempt in range(3):
         try:
@@ -70,14 +76,14 @@ def get_soup(url: str) -> BeautifulSoup | None:
             return BeautifulSoup(resp.text, "html.parser")
         except Exception as e:
             if attempt == 2:
-                print(f"  ⚠ Bỏ qua {url}: {e}")
+                print(f"  ⚠ Skip {url}: {e}")
                 return None
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
 
 
 def get_lesson_links(category_url: str) -> list[tuple[str, str]]:
     """
-    Lấy danh sách (url, title) của tất cả bài học trong một category SGK.
+    Get lesson links (url, title) of all lessons in an SGK category.
     Pattern: <a href="..." title="Toán lớp 3 trang ...">...</a>
     """
     soup = get_soup(category_url)
@@ -86,13 +92,13 @@ def get_lesson_links(category_url: str) -> list[tuple[str, str]]:
 
     links = []
     for a in soup.find_all("a", href=True, title=True):
-        href = a["href"]
-        title = a["title"].strip()
-        # Chỉ lấy bài học (URL dạng /...-a\d+.html, không phải category -c\d+)
+        href = str(a["href"])
+        title = str(a["title"]).strip()
+        # Only take lesson URLs (pattern /...-a\d+.html, not -c\d+)
         if re.search(r"-a\d+\.html$", href) and len(title) > 10:
             links.append((href, title))
 
-    # Dedup giữ thứ tự
+    # Remove duplicates, keep first occurrence
     seen = set()
     unique = []
     for href, title in links:
@@ -104,67 +110,99 @@ def get_lesson_links(category_url: str) -> list[tuple[str, str]]:
 
 
 def extract_content(soup: BeautifulSoup) -> str:
+    with open("debug.html", "w", encoding="utf-8") as f:
+        f.write(str(soup))
     """
-    Extract text nội dung bài học từ một trang loigiaihay.
-    Loại bỏ: nav, ads, comments, scripts, related-articles.
+    Extract text content from a loigiaihay page.
+    Remove: nav, ads, comments, scripts, related-articles.
     """
-    # Xóa các phần không cần
-    for tag in soup.find_all(["script", "style", "nav", "footer",
-                               "iframe", "ins", "noscript"]):
+    # Remove unnecessary tags
+    for tag in soup.find_all(
+        ["script", "style", "nav", "footer", "iframe", "ins", "noscript"]
+    ):
         tag.decompose()
-    for cls in ["related", "comment", "ads", "social", "breadcrumb",
-                "sidebar", "popup", "cookie", "header", "navigation"]:
+    for cls in [
+        "related",
+        "comment",
+        "ads",
+        "social",
+        "breadcrumb",
+        "sidebar",
+        "popup",
+        "cookie",
+        "header",
+        "navigation",
+        "binh-luan",
+        "chia-se",
+        "bao-loi",
+        "feedback",
+        "rating",
+        "binhchon",
+        "cac-bai-khac",
+    ]:
         for tag in soup.find_all(class_=re.compile(cls, re.I)):
             tag.decompose()
 
-    # Tìm block nội dung chính qua article_id
-    content_block = soup.find(id=re.compile(r"content_article"))
+    # Find the main content block by article_id
+    content_block = soup.find(id=re.compile(r"content_box"))
     if not content_block:
-        # fallback: thử class article
-        content_block = soup.find(class_=re.compile(r"article|content-detail", re.I))
+        # Fallback: try article class
+        content_block = soup.find(class_=re.compile(r"content_article", re.I))
 
     target = content_block or soup.find("body") or soup
     text = target.get_text(separator="\n", strip=True)
 
-    # Làm sạch
+    # Clean up
     text = re.sub(r"&[a-z]+;", " ", text)
-    text = re.sub(r"http\S+", "", text)          # xóa links
-    text = re.sub(r"\n{3,}", "\n\n", text)        # max 2 newlines liên tiếp
+    text = re.sub(r"http\S+", "", text)  # remove links
+    text = re.sub(r"\n{3,}", "\n\n", text)  # max 2 newlines
     text = re.sub(r"[ \t]+", " ", text)
+
+    lines = text.split("\n")
+    lines = [
+        l
+        for l in lines
+        if not any(
+            k in l
+            for k in [
+                "Bình luận",
+                "Chia sẻ",
+                "Bình chọn",
+                "Báo lỗi",
+                "Góp ý",
+                "Luyện Bài Tập",
+                "Xem ngay",
+                "phiếu",
+                "Video hướng dẫn",
+            ]
+        )
+    ]
+    lines = [l for l in lines if len(l.strip()) > 10]
+
+    text = "\n".join(lines)
+
     return text.strip()
 
 
-def chunk_text(text: str, max_chars: int = 800, overlap: int = 100) -> list[str]:
-    """
-    Chia text thành các chunk nhỏ có overlap để embed tốt hơn.
-    Ưu tiên cắt ở boundary đoạn văn (\n\n).
-    """
-    if len(text) <= max_chars:
-        return [text]
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=800,
+    chunk_overlap=100,
+    separators=[
+        "\n#{1,6} ",
+        "```\n",
+        "\n\\*\\*\\*+\n",
+        "\n---+\n",
+        "\n___+\n",
+        "\n\n",
+        "\n",
+        " ",
+        "",
+    ],
+)
 
-    chunks = []
-    paragraphs = text.split("\n\n")
-    current = ""
 
-    for para in paragraphs:
-        if len(current) + len(para) + 2 <= max_chars:
-            current = (current + "\n\n" + para).strip()
-        else:
-            if current:
-                chunks.append(current)
-                # Overlap: giữ lại phần cuối của chunk trước
-                current = current[-overlap:] + "\n\n" + para
-                current = current.strip()
-            else:
-                # Para quá dài, cắt theo ký tự
-                for i in range(0, len(para), max_chars - overlap):
-                    chunks.append(para[i:i + max_chars])
-                current = ""
-
-    if current:
-        chunks.append(current)
-
-    return [c for c in chunks if len(c) > 50]  # bỏ chunks quá ngắn
+def chunk_text(text: str) -> list[str]:
+    return splitter.split_text(text)
 
 
 def make_chunk_id(subject: str, grade: int, series: str, url: str, idx: int) -> str:
@@ -173,15 +211,16 @@ def make_chunk_id(subject: str, grade: int, series: str, url: str, idx: int) -> 
     return f"{subject}{grade}-{series[:4]}-{slug}-c{idx}"
 
 
-def crawl_book(subject: str, grade: int, series: str,
-               category_url: str, output_file) -> int:
-    """Crawl toàn bộ một cuốn SGK, ghi chunks vào output_file (jsonl)."""
+def crawl_book(
+    subject: str, grade: int, series: str, category_url: str, output_file
+) -> int:
+    """Crawl, chunk all lessons from a textbook series, save chunks to output file (jsonl)."""
     print(f"\n📚 {subject.upper()} lớp {grade} ({series})")
     lesson_links = get_lesson_links(category_url)
-    print(f"   Tìm thấy {len(lesson_links)} bài")
+    print(f"   Found {len(lesson_links)} lessons")
 
     total_chunks = 0
-    for url, title in tqdm(lesson_links, desc=f"  Lớp {grade}", unit="bài"):
+    for url, title in tqdm(lesson_links, desc=f"  Grade {grade}", unit="lessons"):
         time.sleep(DELAY)
         soup = get_soup(url)
         if not soup:
@@ -189,7 +228,7 @@ def crawl_book(subject: str, grade: int, series: str,
 
         content = extract_content(soup)
         if len(content) < 100:
-            continue  # bỏ trang rỗng/lỗi
+            continue  # Skip empty/error pages
 
         chunks = chunk_text(content)
         for idx, chunk in enumerate(chunks):
@@ -211,19 +250,16 @@ def crawl_book(subject: str, grade: int, series: str,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Crawl SGK từ loigiaihay.com")
-    parser.add_argument("--grades", nargs="+", type=int,
-                        help="Lớp cụ thể, vd: 3 4 5")
-    parser.add_argument("--subjects", nargs="+",
-                        help="Môn học: toan tieng-viet")
-    parser.add_argument("--all", action="store_true",
-                        help="Crawl toàn bộ SGK trong catalog")
+    parser = argparse.ArgumentParser(description="Crawl SGK from loigiaihay.com")
+    parser.add_argument("--grades", nargs="+", type=int, help="Grades, e.g., 3 4 5")
+    parser.add_argument("--subjects", nargs="+", help="Subjects, e.g., toan tieng-viet")
+    parser.add_argument("--all", action="store_true", help="Crawl all books in catalog")
     parser.add_argument("--output", default="data/sgk_chunks.jsonl")
     args = parser.parse_args()
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
-    # Lọc catalog theo tham số
+    # Filter catalog by arguments
     catalog = SGK_CATALOG
     if not args.all:
         if args.grades:
@@ -232,17 +268,17 @@ def main():
             catalog = [c for c in catalog if c[0] in args.subjects]
 
     if not catalog:
-        print("Không có mục nào phù hợp. Dùng --all hoặc chỉ định --grades/--subjects")
+        print("No matching items found. Use --all or specify --grades/--subjects")
         return
 
-    print(f"🚀 Bắt đầu crawl {len(catalog)} cuốn SGK → {args.output}")
+    print(f"🚀 Starting to crawl {len(catalog)} textbooks → {args.output}")
     total = 0
     with open(args.output, "w", encoding="utf-8") as f:
         for subject, grade, series, url in catalog:
             total += crawl_book(subject, grade, series, url, f)
 
-    print(f"\n🎉 Hoàn tất! Tổng cộng {total} chunks → {args.output}")
-    print("   Bước tiếp: python ingest_qdrant.py --input", args.output)
+    print(f"\n🎉 Finished! Total {total} chunks → {args.output}")
+    print("   Next step: python ingest_qdrant.py --input", args.output)
 
 
 if __name__ == "__main__":

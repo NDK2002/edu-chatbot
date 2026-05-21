@@ -1,49 +1,39 @@
+from glob import glob
 import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
-from google import genai
-from google.genai import types
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
-COLLECTION  = os.getenv("QDRANT_COLLECTION", "edu_kb")
-THRESHOLD   = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.82))
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+COLLECTION = os.getenv("QDRANT_COLLECTION", "edu_kb")
+THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.82))
 
-_qdrant: QdrantClient | None = None
-_genai_client: genai.Client | None = None
+_client = None
 
-
-def _get_qdrant() -> QdrantClient:
-    global _qdrant
-    if _qdrant is None:
-        _qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-    return _qdrant
-
-
-def _get_genai() -> genai.Client:
-    global _genai_client
-    if _genai_client is None:
-        _genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    return _genai_client
+embeddings_doc = GoogleGenerativeAIEmbeddings(
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    model="gemini-embedding-001",
+    task_type="retrieval_document",
+)
+embeddings_query = GoogleGenerativeAIEmbeddings(
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    model="gemini-embedding-001",
+    task_type="retrieval_query",
+)
 
 
-async def embed(text: str) -> list[float]:
-    """Tạo embedding bằng Gemini text-embedding-004."""
-    client = _get_genai()
-    result = client.models.embed_content(
-        model="text-embedding-004",
-        contents=text,
-        config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"),
-    )
-    return list(result.embeddings[0].values)
+def get_client() -> QdrantClient:
+    global _client
+    if _client is None:
+        _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    return _client
 
 
 async def search(query: str, grade: int = 0, top_k: int = 3) -> dict | None:
-    """
-    Tìm kiếm trong Qdrant. Trả về kết quả tốt nhất nếu score >= THRESHOLD.
-    """
-    vector = await embed(query)
-    client = _get_qdrant()
+    ## Use retrieval_query to embed question
+    vector = embeddings_query.embed_query(query)
+    client = get_client()
 
     query_filter = None
     if grade > 0:
@@ -51,23 +41,28 @@ async def search(query: str, grade: int = 0, top_k: int = 3) -> dict | None:
             must=[FieldCondition(key="grade", match=MatchValue(value=grade))]
         )
 
-    hits = client.search(
+    hits = client.query_points(
         collection_name=COLLECTION,
-        query_vector=vector,
+        query=vector,
         limit=top_k,
         query_filter=query_filter,
         with_payload=True,
-    )
+    ).points
 
     if not hits:
         return None
 
     best = hits[0]
+    print(f"DEBUG score: {best.score}")
     if best.score < THRESHOLD:
+        return None
+
+    ## Check payload before access
+    if not best.payload:
         return None
 
     return {
         "content": best.payload.get("content", ""),
-        "title":   best.payload.get("title", ""),
-        "score":   best.score,
+        "title": best.payload.get("title", ""),
+        "score": best.score,
     }
