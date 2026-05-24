@@ -1,15 +1,18 @@
+import os
 from fastapi import APIRouter
 from pydantic import BaseModel
 from backend.services.content_safety import is_safe
 from backend.services.vector_search import search
 from backend.services.gemini import ask_gemini
+from dotenv import load_dotenv
 
+load_dotenv()
 router = APIRouter()
 
 class ChatRequest(BaseModel):
     message: str
-    grade: int = 3
-    language: str = "vi"   # "vi" | "hmong"
+    grade: int = 0          # 0 = no grade filter (search all grades 1–5)
+    language: str = "vi"    # "vi" | "tay_nung"
 
 class ChatResponse(BaseModel):
     answer: str
@@ -18,19 +21,24 @@ class ChatResponse(BaseModel):
 
 @router.post("/", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    # 1. Kiểm duyệt nội dung
+    # 1. Validate input
     if not is_safe(req.message):
         return ChatResponse(answer="Câu hỏi không phù hợp.", source="safety")
 
-    # 2. Vector search trước
+    # 2. Vector search first
     result = await search(req.message, grade=req.grade)
-    if result and result["score"] >= 0.82:
+    if result and result["score"] >= float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.5)):
         return ChatResponse(
             answer=result["content"],
             source="vector",
             score=result["score"]
         )
 
-    # 3. Fallback: gọi Gemini
-    answer = await ask_gemini(req.message, grade=req.grade, language=req.language)
+    context = result["content"] if result else ""
+    answer = await ask_gemini(
+        prompt=req.message, 
+        context=context, 
+        grade=req.grade, 
+        language=req.language
+    )
     return ChatResponse(answer=answer, source="llm")

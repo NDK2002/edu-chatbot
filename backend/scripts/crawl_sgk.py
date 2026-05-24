@@ -27,7 +27,6 @@ import re
 import json
 import time
 import argparse
-import os
 from pathlib import Path
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -45,6 +44,8 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "vi-VN,vi;q=0.9",
 }
+
+# NOTE: Keep DELAY >= 1.0 to avoid sending requests too aggressively.
 DELAY = 1.2  # seconds between requests
 
 # ── SGK catalog ────────────────────────────────────────────────────
@@ -56,11 +57,15 @@ SGK_CATALOG = [
         "toan",
         2,
         "ket-noi-tri-thuc",
-        "/sgk-toan-2-ket-noi-tri-thuc-c813.html",
+        "/toan-lop-2-ket-noi-tri-thuc-voi-cuoc-song-c625.html",
     ),
     ("toan", 3, "ket-noi-tri-thuc", "/sgk-toan-3-ket-noi-tri-thuc-c813.html"),
     ("toan", 4, "ket-noi-tri-thuc", "/sgk-toan-4-ket-noi-tri-thuc-c1398.html"),
     ("toan", 5, "ket-noi-tri-thuc", "/sgk-toan-5-ket-noi-tri-thuc-c1728.html"),
+    ("toan", 6, "ket-noi-tri-thuc", "/toan-lop-6-ket-noi-tri-thuc-voi-cuoc-song-c643.html"),
+    ("toan", 7, "ket-noi-tri-thuc", "/sgk-toan-7-ket-noi-tri-thuc-c807.html"),
+    ("toan", 8, "ket-noi-tri-thuc", "/sgk-toan-8-ket-noi-tri-thuc-c1390.html"),
+    ("toan", 9, "ket-noi-tri-thuc", "/sgk-toan-9-ket-noi-tri-thuc-c1748.html"),
     # Vietnamese — Knowledge Connection (add after verifying URL)
     # ("tieng-viet", 3, "ket-noi-tri-thuc", "/sgk-tieng-viet-3-ket-noi-tri-thuc-cXXX.html"),
 ]
@@ -110,18 +115,14 @@ def get_lesson_links(category_url: str) -> list[tuple[str, str]]:
 
 
 def extract_content(soup: BeautifulSoup) -> str:
-    with open("debug.html", "w", encoding="utf-8") as f:
-        f.write(str(soup))
-    """
-    Extract text content from a loigiaihay page.
-    Remove: nav, ads, comments, scripts, related-articles.
-    """
     # Remove unnecessary tags
     for tag in soup.find_all(
         ["script", "style", "nav", "footer", "iframe", "ins", "noscript"]
     ):
         tag.decompose()
     for cls in [
+        "n-left-menu",  # sidebar listing all lessons — must strip before extracting
+        "Choose-fast",  # tab navigation bar inside article (Hoạt động / Luyện tập 1 / Lý thuyết)
         "related",
         "comment",
         "ads",
@@ -143,10 +144,9 @@ def extract_content(soup: BeautifulSoup) -> str:
         for tag in soup.find_all(class_=re.compile(cls, re.I)):
             tag.decompose()
 
-    # Find the main content block by article_id
-    content_block = soup.find(id=re.compile(r"content_box"))
+    # #box-content is the actual article div; content_box is the outer wrapper that includes the sidebar
+    content_block = soup.find(id="box-content")
     if not content_block:
-        # Fallback: try article class
         content_block = soup.find(class_=re.compile(r"content_article", re.I))
 
     target = content_block or soup.find("body") or soup
@@ -154,6 +154,7 @@ def extract_content(soup: BeautifulSoup) -> str:
 
     # Clean up
     text = re.sub(r"&[a-z]+;", " ", text)
+    text = text.replace("\xa0", " ")  # non-breaking space → regular space
     text = re.sub(r"http\S+", "", text)  # remove links
     text = re.sub(r"\n{3,}", "\n\n", text)  # max 2 newlines
     text = re.sub(r"[ \t]+", " ", text)
@@ -170,14 +171,18 @@ def extract_content(soup: BeautifulSoup) -> str:
                 "Bình chọn",
                 "Báo lỗi",
                 "Góp ý",
+                "Lựa chọn câu để xem",
                 "Luyện Bài Tập",
                 "Xem ngay",
                 "phiếu",
                 "Video hướng dẫn",
+                "Bài tiếp theo",
+                "Xem chi tiết",
+                ">> Xem",
             ]
         )
     ]
-    lines = [l for l in lines if len(l.strip()) > 10]
+    lines = [l for l in lines if len(l.strip()) >= 10]
 
     text = "\n".join(lines)
 
@@ -205,6 +210,15 @@ def chunk_text(text: str) -> list[str]:
     return splitter.split_text(text)
 
 
+def _is_toc_chunk(text: str) -> bool:
+    """Return True if >55% of non-empty lines are table-of-contents entries like 'Bài 5:' or 'Chủ đề 3:'."""
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if not lines:
+        return True
+    toc_lines = sum(1 for line in lines if re.match(r"^(Bài|Chủ đề)\s+\d+", line))
+    return toc_lines / len(lines) > 0.55
+
+
 def make_chunk_id(subject: str, grade: int, series: str, url: str, idx: int) -> str:
     slug = re.sub(r"[^a-z0-9]", "-", url.split("/")[-1].replace(".html", ""))
     slug = re.sub(r"-+", "-", slug)[:40]
@@ -230,7 +244,7 @@ def crawl_book(
         if len(content) < 100:
             continue  # Skip empty/error pages
 
-        chunks = chunk_text(content)
+        chunks = [c for c in chunk_text(content) if not _is_toc_chunk(c)]
         for idx, chunk in enumerate(chunks):
             record = {
                 "id": make_chunk_id(subject, grade, series, url, idx),

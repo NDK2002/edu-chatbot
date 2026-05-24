@@ -25,3 +25,7 @@ pyrightconfig.json
 .vscode
 debug.html
 test_search.py
+test_crawl.py
+CLAUDE.md
+AGENTS.md
+edu_chatbot_project_summary.md
