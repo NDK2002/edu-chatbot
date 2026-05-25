@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState } from "react";
+import Image from "next/image";
 import ModeToggle from "@/components/ModeToggle";
 import { generateLesson } from "@/lib/api";
 
@@ -15,7 +16,7 @@ export default function TeacherPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     if (!topic.trim() || isLoading) return;
 
@@ -38,8 +39,8 @@ export default function TeacherPage() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-emerald-100 shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-xl shadow">
-            👩‍🏫
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow overflow-hidden">
+            <Image src="/teacher-icon.png" alt="Giáo viên" width={28} height={28} />
           </div>
           <div>
             <h1 className="font-bold text-emerald-800 text-base leading-tight">

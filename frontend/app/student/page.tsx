@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, FormEvent } from "react";
+import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import ChatBubble from "@/components/ChatBubble";
 import ModeToggle from "@/components/ModeToggle";
 import { sendChatMessage, ChatResponse } from "@/lib/api";
@@ -14,6 +15,7 @@ interface Message {
   source?: string;
   grade?: number;
   loading?: boolean;
+  animate?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -71,6 +73,7 @@ export default function StudentPage() {
             ? {
                 ...m,
                 loading: false,
+                animate: true,
                 content: res.answer,
                 steps: res.steps,
                 vocab: res.vocab,
@@ -98,7 +101,7 @@ export default function StudentPage() {
     }
   }
 
-  function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     handleSend(input);
   }
@@ -108,8 +111,8 @@ export default function StudentPage() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-sky-100 shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center text-xl shadow">
-            🎒
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center shadow overflow-hidden">
+            <Image src="/student-icon.png" alt="Học sinh" width={28} height={28} />
           </div>
           <div>
             <h1 className="font-bold text-sky-800 text-base leading-tight">
@@ -130,9 +133,10 @@ export default function StudentPage() {
             content={msg.content}
             steps={msg.steps}
             vocab={msg.vocab}
-            // source={msg.source}
-            // grade={msg.grade}
+            source={msg.source}
+            grade={msg.grade}
             loading={msg.loading}
+            animate={msg.animate}
           />
         ))}
         <div ref={bottomRef} />
