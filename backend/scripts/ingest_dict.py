@@ -52,6 +52,7 @@ INDEXES_VI_TAY: list[tuple[str, PayloadSchemaType]] = [
     ("domain", PayloadSchemaType.KEYWORD),
     ("direction", PayloadSchemaType.KEYWORD),
     ("topic", PayloadSchemaType.KEYWORD),
+    ("vi", PayloadSchemaType.KEYWORD),
     ("vi_no_accent", PayloadSchemaType.KEYWORD),
     ("review_status", PayloadSchemaType.KEYWORD),
     ("source_file", PayloadSchemaType.KEYWORD),
