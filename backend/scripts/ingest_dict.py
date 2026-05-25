@@ -39,8 +39,8 @@ AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "AITeamVN/Vietnamese_Embedding")
 EMBED_URL = os.getenv("EMBED_URL", "https://ai-model.ndk.id.vn/embeddings")
 
-COLLECTION_VI_TAY = "edu_vi_tay_nung_dictionary"
-COLLECTION_TAY_VI = "edu_tay_vi_dictionary"
+COLLECTION_VI_TAY = os.getenv("QDRANT_COLLECTION_VI_TAY", "edu_vi_tay_nung_dictionary")
+COLLECTION_TAY_VI = os.getenv("QDRANT_COLLECTION_TAY_VI", "edu_tay_vi_dictionary")
 
 BATCH_SIZE = 50
 MAX_RETRIES = 3

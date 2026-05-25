@@ -9,7 +9,9 @@ log = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
-COLLECTION = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
+COLLECTION_MATH = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
+COLLECTION_VI_TAY = os.getenv("QDRANT_COLLECTION_VI_TAY", "edu_vi_tay_nung_dictionary")
+COLLECTION_TAY_VI = os.getenv("QDRANT_COLLECTION_TAY_VI", "edu_tay_vi_dictionary")
 VECTOR_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.40))
 RERANK_THRESHOLD = float(os.getenv("RERANK_SCORE_THRESHOLD", 0.0))
 
@@ -95,7 +97,7 @@ def _query_qdrant(
     top_k: int,
 ):
     response = client.query_points(
-        collection_name=COLLECTION,
+        collection_name=COLLECTION_MATH,
         query=vector,
         limit=top_k,
         query_filter=_build_query_filter(grade),

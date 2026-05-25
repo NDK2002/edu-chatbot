@@ -86,7 +86,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 # Qdrant (mặc định dùng local Docker)
 QDRANT_HOST=qdrant
 QDRANT_PORT=6333
-QDRANT_COLLECTION=edu_kb
+QDRANT_COLLECTION_MATH=edu_kb
 
 # Redis (offline cache)
 REDIS_HOST=redis

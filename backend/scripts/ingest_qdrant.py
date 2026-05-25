@@ -23,7 +23,7 @@ load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
-COLLECTION = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
+COLLECTION_MATH = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
 AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "AITeamVN/Vietnamese_Embedding")
 EMBED_URL = os.getenv("EMBED_URL", "https://ai-model.ndk.id.vn/embeddings")
@@ -106,17 +106,17 @@ def ingest(input_path: str):
 
     # Create collection if not exists
     existing = [c.name for c in client.get_collections().collections]
-    if COLLECTION not in existing:
+    if COLLECTION_MATH not in existing:
         vector_dim = get_vector_dim()
         client.create_collection(
-            collection_name=COLLECTION,
+            collection_name=COLLECTION_MATH,
             vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
         )
-        print(f"✅ Created collection: {COLLECTION} (dim={vector_dim})")
+        print(f"✅ Created collection: {COLLECTION_MATH} (dim={vector_dim})")
 
     for field_name, field_schema in PAYLOAD_INDEXES:
         client.create_payload_index(
-            collection_name=COLLECTION,
+            collection_name=COLLECTION_MATH,
             field_name=field_name,
             field_schema=field_schema,
         )
@@ -155,7 +155,7 @@ def ingest(input_path: str):
         ]
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                client.upsert(collection_name=COLLECTION, points=points)
+                client.upsert(collection_name=COLLECTION_MATH, points=points)
                 break
             except Exception:
                 if attempt == MAX_RETRIES:
