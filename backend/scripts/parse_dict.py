@@ -120,23 +120,21 @@ def _topic_for(stt: int, ranges: dict[int, str]) -> str:
 def _split_variants(raw: str) -> list[str]:
     """
     Tách text cột Tày/Nùng thành list biến thể.
-    Ưu tiên split theo `;`.
-    Nếu không có `;`, tách theo pattern `) word` (sau ngoặc đóng xuất hiện từ mới).
+    Thứ tự: split ; → split `) word` → split theo uppercase bên ngoài ngoặc.
     """
     raw = re.sub(r"\s+", " ", raw).strip()
     if not raw:
         return []
 
-    # Ưu tiên split theo ; (nhiều entry dùng dấu chấm phẩy)
-    if ";" in raw:
-        parts = [p.strip() for p in raw.split(";") if p.strip()]
-        # Mỗi part có thể vẫn chứa nhiều biến thể → đệ quy
-        result = []
-        for p in parts:
-            result.extend(_split_variants_by_paren(p))
-        return result
+    # 1. Split theo ;
+    semicolon_parts = [p.strip() for p in raw.split(";") if p.strip()] if ";" in raw else [raw]
 
-    return _split_variants_by_paren(raw)
+    # 2. Với mỗi phần: split `) word`, rồi split uppercase
+    result = []
+    for part in semicolon_parts:
+        for paren_part in _split_variants_by_paren(part):
+            result.extend(_split_variants_by_uppercase(paren_part))
+    return result
 
 
 def _split_variants_by_paren(raw: str) -> list[str]:
@@ -147,7 +145,6 @@ def _split_variants_by_paren(raw: str) -> list[str]:
     raw = raw.strip()
     if not raw:
         return []
-    # Chỉ split khi có ít nhất 1 ngoặc đóng theo sau là khoảng trắng + ký tự chữ
     if ")" not in raw:
         return [raw]
     parts = re.split(r"\)\s+(?=[A-Za-zÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬĐàáảãạăằắẳẵặâầấẩẫậđ])", raw)
@@ -158,8 +155,93 @@ def _split_variants_by_paren(raw: str) -> list[str]:
         p = p.strip()
         if not p:
             continue
-        # Thêm lại `)` cho tất cả phần trừ phần cuối (đã consume `)` khi split)
         result.append(p + ")" if i < len(parts) - 1 else p)
+    return result
+
+
+# Chuẩn hóa tên vùng/phương ngữ — more-specific trước less-specific
+_REGION_NORMS: list[tuple[str, str]] = [
+    ("nùng phàn slình", "Nùng Phàn Slình"),
+    ("Nùng phàn Slình", "Nùng Phàn Slình"),
+    ("N phàn slình",    "Nùng Phàn Slình"),
+    ("nùng phản sình",  "Nùng Phản Sình"),
+    ("Nùng phản sình",  "Nùng Phản Sình"),
+    ("nùng hòa an",     "Nùng Hòa An"),
+    ("Nùng hòa an",     "Nùng Hòa An"),
+    ("n .lòi",          "Nùng Lòi"),
+    ("n.lòi",           "Nùng Lòi"),
+    ("nùng inh",        "Nùng Inh"),
+    ("Nùng inh",        "Nùng Inh"),
+    ("nùng lòi",        "Nùng Lòi"),
+    ("Nùng lòi",        "Nùng Lòi"),
+    ("nùng an",         "Nùng An"),
+    ("Nùng an",         "Nùng An"),
+    ("Cao Bang",        "Cao Bằng"),
+    ("Lạng sơn",        "Lạng Sơn"),
+    ("lạng sơn",        "Lạng Sơn"),
+    ("Bắc Giang,Lạng",  "Bắc Giang, Lạng Sơn"),
+]
+
+
+def _normalize_regions(text: str) -> str:
+    """Chuẩn hóa tên vùng/phương ngữ trong cột TÀY/NÙNG (case-insensitive)."""
+    for old, new in _REGION_NORMS:
+        text = re.sub(re.escape(old), new, text, flags=re.IGNORECASE)
+    return text
+
+
+def _split_variants_by_uppercase(text: str) -> list[str]:
+    """
+    Nếu text bắt đầu bằng chữ THƯỜNG và chứa từ bắt đầu chữ HOA ngoài ngoặc,
+    tách tại điểm đó.
+    "nẳ ph'ac Nả phác" → ["nẳ ph'ac", "Nả phác"]
+    Text bắt đầu HOA (tên riêng/ghép) → giữ nguyên.
+    """
+    text = text.strip()
+    if not text or text[0].isupper():
+        return [text] if text else []
+
+    parts: list[str] = []
+    seg_start = 0
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == " " and depth == 0 and i + 1 < len(text):
+            if text[i + 1].isupper():
+                seg = text[seg_start:i].strip()
+                if seg:
+                    parts.append(seg)
+                seg_start = i + 1
+    last = text[seg_start:].strip()
+    if last:
+        parts.append(last)
+    return parts if parts else [text]
+
+
+def _build_search_terms(
+    vi: str,
+    vi_no_accent: str,
+    tay_v: list[str],
+    nung_v: list[str],
+) -> list[str]:
+    """
+    Danh sách từ khóa search:
+    vi, vi_no_accent, rồi phần trước '(' của mỗi variant (dedup, giữ thứ tự).
+    """
+    terms: list[str] = [vi, vi_no_accent]
+    for variant in tay_v + nung_v:
+        word = variant.split("(")[0].strip()
+        if word:
+            terms.append(word)
+    seen: set[str] = set()
+    result: list[str] = []
+    for t in terms:
+        if t not in seen:
+            seen.add(t)
+            result.append(t)
     return result
 
 
@@ -225,24 +307,26 @@ def parse_vi_tay_nung() -> list[dict]:
         if not vi:
             continue
 
-        tay_v = _split_variants(e["tay"])
-        nung_v = _split_variants(e["nung"])
+        tay_v = _split_variants(_normalize_regions(e["tay"]))
+        nung_v = _split_variants(_normalize_regions(e["nung"]))
+        vi_no_accent = remove_accents(vi)
 
-        # Xây text cho embedding
-        parts = [f"{vi} (tiếng Việt):"]
+        # Xây text cho embedding: "{vi}: tiếng Tày...; tiếng Nùng..."
+        text_parts: list[str] = []
         if tay_v:
-            parts.append("tiếng Tày có thể là " + ", ".join(tay_v))
+            text_parts.append("tiếng Tày có thể là " + ", ".join(tay_v))
         if nung_v:
-            parts.append("tiếng Nùng có thể là " + ", ".join(nung_v))
-        text = "; ".join(parts) + "."
+            text_parts.append("tiếng Nùng có thể là " + ", ".join(nung_v))
+        text = (vi + ": " + "; ".join(text_parts) + ".") if text_parts else (vi + ".")
 
         records.append({
             "id": f"vi_tay_nung_{stt:05d}",
             "text": text,
             "vi": vi,
-            "vi_no_accent": remove_accents(vi),
+            "vi_no_accent": vi_no_accent,
             "tay_variants": tay_v,
             "nung_variants": nung_v,
+            "search_terms": _build_search_terms(vi, vi_no_accent, tay_v, nung_v),
             "topic": _topic_for(stt, topics),
             "note": nfc(e["note"]) if e["note"] else "",
             "domain": "dictionary",
@@ -428,6 +512,8 @@ def main() -> None:
         )
         sys.exit(1)
 
+    if VI_TAY_NUNG_JSONL.exists():
+        VI_TAY_NUNG_JSONL.unlink()
     with open(VI_TAY_NUNG_JSONL, "w", encoding="utf-8") as f:
         for rec in vi_records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
