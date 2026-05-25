@@ -1,8 +1,11 @@
+import logging
 import os
 import re
 import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+log = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
@@ -129,6 +132,10 @@ async def _rerank(query: str, documents: list[str]) -> list[float]:
 
 async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
     expanded = expand_query(query)
+    grade_info = f"grade={grade}" if grade > 0 else "grade=all"
+    log.info("[SEARCH] query=%r  %s  top_k=%d", query, grade_info, top_k)
+    if expanded != query:
+        log.debug("[SEARCH] expanded=%r", expanded)
 
     # Stage 1: vector retrieval
     vector = await _embed(expanded)
@@ -137,10 +144,12 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
     hits = _query_qdrant(client, vector, grade, top_k)
 
     if not hits:
+        log.info("[SEARCH] Qdrant returned 0 hits")
         return None
 
-    best_vector_score = hits[0].score
-    print(f"DEBUG vector score: {best_vector_score:.4f}")
+    log.info("[SEARCH] Qdrant hits=%d  top3_scores=%s",
+             len(hits),
+             [f"{h.score:.4f}" for h in hits[:3]])
 
     # Stage 2: rerank
     valid_hits = [h for h in hits if h.payload]
@@ -151,14 +160,23 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
     rerank_scores = await _rerank(query, documents)
     ranked = sorted(zip(valid_hits, rerank_scores), key=lambda x: x[1], reverse=True)
 
+    log.info("[SEARCH] rerank top3=%s",
+             [(f"{sc:.4f}", _metadata_value(h.payload, "title", "")[:40])
+              for h, sc in ranked[:3]])
+
     best_hit, best_rerank_score = ranked[0]
-    print(f"DEBUG rerank score: {best_rerank_score:.4f}")
     if best_rerank_score < RERANK_THRESHOLD:
+        log.info("[SEARCH] rerank best=%.4f < threshold=%.4f → None", best_rerank_score, RERANK_THRESHOLD)
         return None
 
     best_payload = best_hit.payload or {}
     best_title = _metadata_value(best_payload, "title", "")
     best_lesson_id = _lesson_id(best_payload)
+    log.info("[SEARCH] best → title=%r  grade=%s  source=%s  rerank=%.4f",
+             best_title,
+             _metadata_value(best_payload, "grade"),
+             _metadata_value(best_payload, "source_file"),
+             best_rerank_score)
 
     # Merge top chunks from the same lesson
     merged_parts = []

@@ -6,10 +6,13 @@ Flow: detect(query) → Intent(rule_fn, params) | None
         solve(query)  → MathResult | None   (shortcut gọi detect rồi execute)
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 
 from backend.services.math_rules import RULES, MathResult
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -221,18 +224,18 @@ def _detect_speed(q: str) -> Intent | None:
 
     if find_time and distance is not None and speed is not None:
         return Intent("time_from_distance_speed",
-                      {"distance": distance, "speed": speed,
-                       "d_unit": d_unit, "t_unit": t_unit})
+                        {"distance": distance, "speed": speed,
+                        "d_unit": d_unit, "t_unit": t_unit})
 
     if find_dist and speed is not None and time is not None:
         return Intent("distance_from_speed_time",
-                      {"speed": speed, "time": time,
-                       "s_unit": d_unit, "t_unit": t_unit})
+                        {"speed": speed, "time": time,
+                        "s_unit": d_unit, "t_unit": t_unit})
 
     if (find_speed or not find_time) and distance is not None and time is not None:
         return Intent("speed_from_distance_time",
-                      {"distance": distance, "time": time,
-                       "d_unit": d_unit, "t_unit": t_unit})
+                        {"distance": distance, "time": time,
+                        "d_unit": d_unit, "t_unit": t_unit})
 
     return None
 
@@ -333,7 +336,10 @@ def detect(query: str) -> Intent | None:
     for detector in _DETECTORS:
         result = detector(q)
         if result:
+            log.debug("[INTENT] detector=%s  rule=%s  params=%s",
+                      detector.__name__, result.rule_fn, result.params)
             return result
+    log.debug("[INTENT] no match → theory/RAG")
     return None
 
 
