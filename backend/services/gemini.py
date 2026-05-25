@@ -1,4 +1,5 @@
 import os
+import logging
 import redis.asyncio as aioredis
 import hashlib
 from google import genai
@@ -6,6 +7,7 @@ from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
+log = logging.getLogger(__name__)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_USERNAME = os.getenv("REDIS_USERNAME", "")
@@ -47,6 +49,7 @@ async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: s
     r = await _get_redis()
     cached = await r.get(cache_key)
     if cached:
+        log.info("[GEMINI] cache hit for key=%s", cache_key)
         return cached.decode()
 
     # full_prompt with RAG context

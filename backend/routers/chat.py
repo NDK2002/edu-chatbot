@@ -2,7 +2,7 @@ import logging
 import os
 from fastapi import APIRouter
 from pydantic import BaseModel
-from backend.services.content_safety import is_safe
+from backend.services.content_safety import is_safe, is_meaningful_question
 from backend.services.intent_detector import detect, solve
 from backend.services.vector_search import search
 from backend.services.gemini import ask_gemini
@@ -47,6 +47,13 @@ async def chat(req: ChatRequest):
         log.info("[CHAT] → BLOCKED by content_safety")
         return ChatResponse(answer="Câu hỏi không phù hợp.", source="safety")
 
+    if not is_meaningful_question(req.message):
+        log.info("[CHAT] → BLOCKED by is_meaningful_question")
+        return ChatResponse(
+            answer="Cô chưa hiểu câu hỏi này. Con hãy hỏi về bài Toán hoặc môn học nhé!",
+            source="safety",
+        )
+
     # 2. Intent detection → Rule Engine
     intent = detect(req.message)
     if intent:
@@ -77,8 +84,8 @@ async def chat(req: ChatRequest):
 
     # 4. Gemini fallback
     context = result["content"] if result else ""
-    log.info("[CHAT] → llm  has_context=%s  score=%s",
-                bool(context), f"{result['score']:.4f}" if result else "N/A")
+    log.info("[CHAT] → llm  has_context=%s  score=%s context=%r",
+                bool(context), f"{result['score']:.4f}" if result else "N/A", context[:100])
     answer = await ask_gemini(
         prompt=req.message,
         context=context,

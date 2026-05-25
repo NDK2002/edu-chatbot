@@ -148,8 +148,8 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
         return None
 
     log.info("[SEARCH] Qdrant hits=%d  top3_scores=%s",
-             len(hits),
-             [f"{h.score:.4f}" for h in hits[:3]])
+                len(hits),
+                [f"{h.score:.4f}" for h in hits[:3]])
 
     # Stage 2: rerank
     valid_hits = [h for h in hits if h.payload]
@@ -161,8 +161,8 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
     ranked = sorted(zip(valid_hits, rerank_scores), key=lambda x: x[1], reverse=True)
 
     log.info("[SEARCH] rerank top3=%s",
-             [(f"{sc:.4f}", _metadata_value(h.payload, "title", "")[:40])
-              for h, sc in ranked[:3]])
+                [(f"{sc:.4f}", _metadata_value(h.payload, "title", "")[:40])
+                for h, sc in ranked[:3]])
 
     best_hit, best_rerank_score = ranked[0]
     if best_rerank_score < RERANK_THRESHOLD:
@@ -172,11 +172,13 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
     best_payload = best_hit.payload or {}
     best_title = _metadata_value(best_payload, "title", "")
     best_lesson_id = _lesson_id(best_payload)
-    log.info("[SEARCH] best → title=%r  grade=%s  source=%s  rerank=%.4f",
-             best_title,
-             _metadata_value(best_payload, "grade"),
-             _metadata_value(best_payload, "source_file"),
-             best_rerank_score)
+    log.info("[SEARCH] best → title=%r  grade=%s  source=%s  rerank=%.4f id=%s point_id=%s",
+                best_title,
+                _metadata_value(best_payload, "grade"),
+                _metadata_value(best_payload, "source_file"),
+                best_rerank_score,
+                best_lesson_id,
+                best_hit.id)
 
     # Merge top chunks from the same lesson
     merged_parts = []
