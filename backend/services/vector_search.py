@@ -13,7 +13,7 @@ COLLECTION_MATH = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
 COLLECTION_VI_TAY = os.getenv("QDRANT_COLLECTION_VI_TAY", "edu_vi_tay_nung_dictionary")
 COLLECTION_TAY_VI = os.getenv("QDRANT_COLLECTION_TAY_VI", "edu_tay_vi_dictionary")
 VECTOR_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.40))
-RERANK_THRESHOLD = float(os.getenv("RERANK_SCORE_THRESHOLD", 0.0))
+RERANK_THRESHOLD = float(os.getenv("RERANK_SCORE_THRESHOLD", 0.80))
 
 AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "AITeamVN/Vietnamese_Embedding")

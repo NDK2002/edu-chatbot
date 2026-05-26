@@ -12,7 +12,7 @@ load_dotenv()
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.5))
+SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.70))
 
 
 class ChatRequest(BaseModel):
