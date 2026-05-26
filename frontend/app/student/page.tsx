@@ -31,7 +31,7 @@ export default function StudentPage() {
       id: 0,
       role: "bot",
       content:
-        "Xin chào! 👋 Mình là trợ lý học Toán của em. Em có thể hỏi mình về bất kỳ bài Toán nào từ lớp 1 đến lớp 5 nhé!",
+        "Xin chào! Mình là trợ lý học tập của em.\nMình có thể giúp em:\n- Giải bài Toán từng bước\n- Giải thích từ khó trong đề bài\n- Tra từ tiếng Tày, tiếng Nùng\n\nEm muốn hỏi gì hôm nay?",
     },
   ]);
   const [input, setInput] = useState("");
