@@ -7,7 +7,6 @@ from backend.services.intent_detector import detect, solve
 from backend.services.vector_search import search
 from backend.services.gemini import ask_gemini
 from dotenv import load_dotenv
-from google.genai.errors import ServerError
 
 load_dotenv()
 router = APIRouter()
