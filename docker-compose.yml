@@ -1,10 +1,11 @@
 services:
-
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: edu_backend
+    networks:
+      - edu-chatbot-network
     ports:
       - "8000:8000"
     env_file: .env
@@ -16,23 +17,27 @@ services:
     restart: unless-stopped
 
   qdrant:
-    image: qdrant/qdrant:v1.9.2
-    container_name: edu_qdrant
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    networks:
+      - edu-chatbot-network
     ports:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
-    restart: unless-stopped
+    restart: always
 
   redis:
-    image: redis:7.2-alpine
-    container_name: edu_redis
+    image: redis:lastest
+    container_name: redis
+    networks:
+      - edu-chatbot-network
     ports:
       - "6379:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-password}
     volumes:
       - redis_data:/data
-    restart: unless-stopped
+    restart: always
 
   frontend:
     build:
@@ -41,6 +46,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: edu_frontend
+    networks:
+      - edu-chatbot-network
     ports:
       - "3000:3000"
     env_file: .env
@@ -51,3 +58,8 @@ services:
 volumes:
   qdrant_data:
   redis_data:
+
+networks:
+  edu-chatbot-network:
+    name: edu-chatbot-network
+    driver: bridge
