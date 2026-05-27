@@ -12,7 +12,7 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION_MATH = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
 COLLECTION_VI_TAY = os.getenv("QDRANT_COLLECTION_VI_TAY", "edu_vi_tay_nung_dictionary")
 COLLECTION_TAY_VI = os.getenv("QDRANT_COLLECTION_TAY_VI", "edu_tay_vi_dictionary")
-VECTOR_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.40))
+VECTOR_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.45))
 RERANK_THRESHOLD = float(os.getenv("RERANK_SCORE_THRESHOLD", 0.80))
 
 AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
@@ -89,6 +89,151 @@ def _build_query_filter(grade: int) -> Filter:
         must.append(FieldCondition(key="grade", match=MatchValue(value=grade)))
     return Filter(must=must)
 
+def classify_retrieval_score(vector_score: float, rerank_score: float | None) -> str:
+    if rerank_score is not None:
+        if rerank_score >= RERANK_THRESHOLD:
+            return "strong_context"
+        
+        if rerank_score >= RERANK_THRESHOLD - 0.30:
+            return "medium_context"
+        
+        if rerank_score >= RERANK_THRESHOLD - 0.60:
+            return "weak_context"
+        
+        return "no_relevant_context"
+
+    if vector_score >= VECTOR_THRESHOLD:
+        return "strong_context"
+
+    if vector_score >= VECTOR_THRESHOLD - 0.10:
+        return "medium_context"
+
+    if vector_score >= VECTOR_THRESHOLD - 0.20:
+        return "weak_context"
+
+    return "no_relevant_context"
+
+def _select_context_limit(retrieval_status: str) -> int:
+    if retrieval_status == "strong_context":
+        return 3
+
+    if retrieval_status == "medium_context":
+        return 2
+    
+    if retrieval_status == "weak_context":
+        return 1
+    
+    return 0
+
+def _hit_to_math_context(hit, rerank_score: float | None) -> dict:
+    payload = hit.payload or {}
+
+    content = _metadata_value(
+        payload,
+        "content",
+        _metadata_value(payload, "text", "")).strip()
+
+    return {
+        "type": "math_context",
+        "content": content,
+        "title": _metadata_value(payload, "title", ""),
+        "grade": _metadata_value(payload, "grade"),
+        "book_set": _metadata_value(payload, "book_set"),
+        "source_file": _metadata_value(
+            payload,
+            "source_file",
+            _metadata_value(payload, "source_url", ""),
+        ),
+        "pages": _metadata_value(payload, "pages", []),
+        "lesson_id": _lesson_id(payload),
+        "formula_key": _metadata_value(payload, "formula_key"),
+        "content_type": _metadata_value(payload, "content_type"),
+        "review_status": _metadata_value(payload, "review_status"),
+        "source_type": _metadata_value(payload, "source_type"),
+        "vector_score": float(hit.score or 0.0),
+        "rerank_score": float(rerank_score or 0.0),
+        "point_id": str(hit.id),
+    }
+
+def _hit_to_dictionary_context(hit, rerank_score: float | None = None) -> dict:
+    payload = hit.payload or {}
+
+    vi = _metadata_value(payload, "vi", "")
+    tay_variants = _metadata_value(payload, "tay_variants", [])
+    nung_variants = _metadata_value(payload, "nung_variants", [])
+
+    content = _metadata_value(payload, "content", "").strip()
+    if not content:
+        content = (
+            f"Từ tiếng Việt: {vi}.\n"
+            f"Từ tiếng Tày: {', '.join(tay_variants) if isinstance(tay_variants, list) else tay_variants}\n"
+            f"Từ tiếng Nùng: {', '.join(nung_variants) if isinstance(nung_variants, list) else nung_variants}"
+        )
+    
+    return {
+        "type": "dictionary_context",
+        "content": content,
+        "direction": _metadata_value(payload, "direction"),
+        "vi": vi,
+        "tay_variants": tay_variants,
+        "nung_variants": nung_variants,
+        "topic": _metadata_value(payload, "topic"),
+        "dialect_note": _metadata_value(payload, "dialect_note"),
+        "source_file": _metadata_value(payload, "source_file"),
+        "review_status": _metadata_value(payload, "review_status"),
+        "source_type": _metadata_value(payload, "source_type"),
+        "vector_score": float(hit.score or 0.0),
+        "rerank_score": float(rerank_score or 0.0),
+        "point_id": str(hit.id),
+    }
+
+def _hit_to_context(hit, rerank_score: float, context_type: str) -> dict:
+    if context_type == "math":
+        return _hit_to_math_context(hit, rerank_score)
+
+    if context_type == "dictionary":
+        return _hit_to_dictionary_context(hit, rerank_score)
+
+    raise ValueError(f"Unsupported context_type: {context_type}")
+
+def _normalize_text_for_dedupe(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+def _dedupe_contexts(contexts: list[dict]) -> list[dict]:
+    sorted_contexts = sorted(
+        contexts, 
+        key=lambda c: (c.get("content") or "").strip(),
+        reverse=True)
+
+    result: list[dict] = []
+    seen_contents: list[str] = []
+
+    for ctx in sorted_contexts:
+        content = ctx.get("content") or ""
+        normalized = _normalize_text_for_dedupe(content)
+
+        if not normalized:
+            continue
+
+        is_duplicate = any(
+            normalized == seen or normalized in seen
+            for seen in seen_contents
+        )
+
+        if is_duplicate:
+            continue
+
+        seen_contents.append(normalized)
+        result.append(ctx)
+
+    result.sort(
+        key=lambda ctx: float(ctx.get("rerank_score") or 0.0),
+        reverse=True,
+    )
+    
+    return result
 
 def _query_qdrant(
     client: QdrantClient,
@@ -126,10 +271,10 @@ async def _rerank(query: str, documents: list[str]) -> list[float]:
         )
         resp.raise_for_status()
         results = resp.json()["results"]
-        scores = [0.0] * len(documents)
+        rerank_scores = [0.0] * len(documents)
         for r in results:
-            scores[r["index"]] = r["relevance_score"]
-        return scores
+            rerank_scores[r["index"]] = r["relevance_score"]
+        return rerank_scores
 
 
 async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
@@ -147,72 +292,102 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
 
     if not hits:
         log.info("[SEARCH] Qdrant returned 0 hits")
-        return None
+        return {
+            "retrieval_status": "no_relevant_context",
+            "content": [],
+            "top_vector_scores": 0.0,
+            "top_rerank_scores": None,
+        }
 
-    log.info("[SEARCH] Qdrant hits=%d  top3_scores=%s",
+    log.info("[SEARCH] Qdrant hits=%d  top3_vector_scores=%s",
                 len(hits),
                 [f"{h.score:.4f}" for h in hits[:3]])
 
-    # Stage 2: rerank
-    valid_hits = [h for h in hits if h.payload]
+    # Stage 2: prepare documents for reranking
+    valid_hits = [
+        h
+        for h in hits
+        if h.payload
+        and _metadata_value(
+            h.payload,
+            "content",
+            _metadata_value(h.payload, "text", ""),
+        )
+    ]
+
+    if not valid_hits:
+        log.info("[SEARCH] No valid hits with content for reranking")
+        return {
+            "retrieval_status": "no_relevant_context",
+            "content": [],
+            "top_vector_scores": float(hits[0].score or 0.0),
+            "top_rerank_scores": None,
+        }
+
     documents = [
-        _metadata_value(h.payload, "content", _metadata_value(h.payload, "text", ""))
+        _metadata_value(
+            h.payload,
+            "content",
+            _metadata_value(h.payload, "text", ""),
+        )
         for h in valid_hits
     ]
-    rerank_scores = await _rerank(query, documents)
-    ranked = sorted(zip(valid_hits, rerank_scores), key=lambda x: x[1], reverse=True)
 
-    log.info("[SEARCH] rerank top3=%s",
-                [(f"{sc:.4f}", _metadata_value(h.payload, "title", "")[:40])
-                for h, sc in ranked[:3]])
+    rerank_scores = await _rerank(query, documents)
+
+    ranked = sorted(
+        zip(valid_hits, rerank_scores),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    log.info(
+        "[SEARCH] Rerank top3=%s",
+        [
+            (f"{sc:.4f}", _metadata_value(h.payload, "title", "")[:40])
+            for h, sc in ranked[:3]
+        ], 
+    )
 
     best_hit, best_rerank_score = ranked[0]
-    if best_rerank_score < RERANK_THRESHOLD:
-        log.info("[SEARCH] rerank best=%.4f < threshold=%.4f → None", best_rerank_score, RERANK_THRESHOLD)
-        return None
+    best_vector_score = float(best_hit.score or 0.0)
+    retrieval_status = classify_retrieval_score(
+        vector_score=best_vector_score, 
+        rerank_score=best_rerank_score
+    )
 
     best_payload = best_hit.payload or {}
     best_title = _metadata_value(best_payload, "title", "")
-    best_lesson_id = _lesson_id(best_payload)
-    log.info("[SEARCH] best → title=%r  grade=%s  source=%s  rerank=%.4f id=%s point_id=%s",
-                best_title,
-                _metadata_value(best_payload, "grade"),
-                _metadata_value(best_payload, "source_file"),
-                best_rerank_score,
-                best_lesson_id,
-                best_hit.id)
 
-    # Merge top chunks from the same lesson
-    merged_parts = []
-    seen_content: set[str] = set()
-    for hit, _ in ranked[:6]:
-        if not hit.payload:
-            continue
-        hit_payload = hit.payload
-        if _lesson_id(hit_payload) != best_lesson_id:
-            if _metadata_value(hit_payload, "title", "") != best_title:
-                continue
-        chunk = _metadata_value(
-            hit_payload,
-            "content",
-            _metadata_value(hit_payload, "text", ""),
-        ).strip()
-        if chunk and chunk not in seen_content:
-            merged_parts.append(chunk)
-            seen_content.add(chunk)
+    log.info(
+        "[SEARCH] status=%s best_vector=%.4f best_rerank=%.4f title=%r grade=%s source=%s point_id=%s",
+        retrieval_status,
+        best_vector_score,
+        best_rerank_score,
+        best_title,
+        _metadata_value(best_payload, "grade"),
+        _metadata_value(best_payload, "source_file"),
+        best_hit.id
+    )
+
+    context_limit = _select_context_limit(retrieval_status)
+    if context_limit <= 0:
+        return {
+            "retrieval_status": retrieval_status,
+            "context": [],
+            "top_vector_score": best_vector_score,
+            "top_rerank_score": float(best_rerank_score),
+        }
+
+    contexts = [
+        _hit_to_math_context(hit, rerank_score)
+        for hit, rerank_score in ranked[:context_limit]
+    ]
+
+    contexts = _dedupe_contexts(contexts)
 
     return {
-        "content": "\n\n".join(merged_parts),
-        "title": best_title,
-        "grade": _metadata_value(best_payload, "grade"),
-        "subject": _metadata_value(best_payload, "subject"),
-        "book_set": _metadata_value(best_payload, "book_set"),
-        "source_file": _metadata_value(
-            best_payload,
-            "source_file",
-            _metadata_value(best_payload, "source_url"),
-        ),
-        "pages": _metadata_value(best_payload, "pages", []),
-        "lesson_id": best_lesson_id,
-        "score": float(best_rerank_score),
+        "retrieval_status": retrieval_status,
+        "context": contexts,
+        "top_vector_score": best_vector_score,
+        "top_rerank_score": float(best_rerank_score),
     }

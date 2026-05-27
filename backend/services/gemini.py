@@ -2,9 +2,15 @@ import os
 import logging
 import redis.asyncio as aioredis
 import hashlib
+import time
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from google.genai.errors import ServerError
+from fastapi import HTTPException
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception
+
+
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -16,6 +22,12 @@ CACHE_TTL = int(os.getenv("REDIS_CACHE_TTL", 86400))
 
 _redis = None
 _client = None
+
+FALLBACK_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+]
+
 
 BASE_PROMPT = """
 Bạn là trợ lý học tập cho học sinh tiểu học vùng cao dân tộc Tày/Nùng tại Việt Nam.
@@ -96,13 +108,27 @@ async def _get_redis():
 def _cache_key(prompt: str) -> str:
     return "gemini:" + hashlib.md5(prompt.encode()).hexdigest()
 
+def get_system_prompt(role: str = "student") -> str:
+    if role == "teacher":
+        return BASE_PROMPT + TEACHER_BLOCK
+    return BASE_PROMPT + STUDENT_BLOCK
 
-async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: str = "vi") -> str:
+def is_503(e):
+    return isinstance(e, ServerError) and e.code == 503
+
+@retry(
+    retry=retry_if_exception(is_503),
+    wait=wait_exponential(multiplier=1, min=1, max=16),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+
+async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: str = "vi", role: str = "student") -> str:
     """
     Gọi Gemini API với server-side cache qua Redis.
     Cùng prompt → trả kết quả cache, không gọi lại API.
     """
-    cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}")
+    cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}:{role}")
 
     r = await _get_redis()
     cached = await r.get(cache_key)
@@ -120,14 +146,28 @@ async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: s
         full_prompt = f"{full_prompt}\n\nLưu ý: Học sinh đang học lớp {grade}."
 
     client = _get_client()
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=full_prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt
-        ),
-    )
-    answer = response.text
+    
+    for model in FALLBACK_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=get_system_prompt(role),
+                    max_output_tokens=2048,
+                    temperature=0.2,
+                ),
+            )
+            if model != FALLBACK_MODELS[0]:
+                log.warning("[GEMINI] Fallback to model %s due to previous failure", model)
+            
+            answer = response.text
+            await r.setex(cache_key, CACHE_TTL, answer)
+            return answer
 
-    await r.setex(cache_key, CACHE_TTL, answer)
-    return answer
+        except ServerError as e:
+            if e.code == 503:
+                log.warning("[GEMINI] Model %s is unavailable (503). Retrying with next model...", model)
+                continue
+            raise
+    raise HTTPException(status_code=503, detail="AI_UNAVAILABLE")
