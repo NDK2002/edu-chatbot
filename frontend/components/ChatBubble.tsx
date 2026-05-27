@@ -3,7 +3,20 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import VocabTable from "./VocabTable";
+import SaveWordButton from "./SaveWordButton";
 import { VocabEntry } from "@/lib/api";
+import { SavedWord } from "@/lib/saved-dictionary";
+
+function vocabEntryToSavedWord(entry: VocabEntry): SavedWord {
+  return {
+    id: "vocab_" + entry.vi.trim().replace(/\s+/g, "_"),
+    vi: entry.vi,
+    tay_variants: entry.tay ? [entry.tay] : [],
+    nung_variants: entry.nung ? [entry.nung] : [],
+    topic: "",
+    saved_at: 0,
+  };
+}
 
 interface Props {
   role: "user" | "bot";
@@ -107,7 +120,16 @@ export default function ChatBubble({
               </div>
             )}
 
-            {isDone && vocab && <VocabTable vocab={vocab} />}
+            {isDone && vocab && vocab.length > 0 && (
+              <>
+                <VocabTable vocab={vocab} />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {vocab.map((entry, i) => (
+                    <SaveWordButton key={i} word={vocabEntryToSavedWord(entry)} />
+                  ))}
+                </div>
+              </>
+            )}
 
             {isDone && (source || grade) && (
               <p className="mt-2 text-xs text-gray-400">

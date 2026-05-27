@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import ModeToggle from "@/components/ModeToggle";
+import AppShell from "@/components/AppShell";
 import { generateLesson } from "@/lib/api";
 
 const SUBJECTS = ["Toán", "Tiếng Việt", "Tự nhiên và Xã hội", "Khoa học"];
@@ -35,21 +35,17 @@ export default function TeacherPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-emerald-50 to-teal-50">
+    <AppShell>
+    <div className="h-full overflow-y-auto bg-gradient-to-b from-emerald-50 to-teal-50">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-emerald-100 shadow-sm sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow overflow-hidden">
-            <Image src="/teacher-icon.png" alt="Giáo viên" width={28} height={28} />
-          </div>
-          <div>
-            <h1 className="font-bold text-emerald-800 text-base leading-tight">
-              Soạn Giáo Án
-            </h1>
-            <p className="text-xs text-emerald-500">Dành cho giáo viên</p>
-          </div>
+      <header className="flex items-center gap-2 px-4 py-3 bg-white border-b border-emerald-100 shadow-sm sticky top-0 z-10">
+        <div className="md:hidden w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow overflow-hidden">
+          <Image src="/teacher-icon.png" alt="Giáo viên" width={22} height={22} />
         </div>
-        <ModeToggle />
+        <div>
+          <h1 className="font-bold text-emerald-800 text-sm leading-tight">Soạn Giáo Án</h1>
+          <p className="text-xs text-emerald-500">Dành cho giáo viên</p>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-5">
@@ -174,5 +170,6 @@ export default function TeacherPage() {
         )}
       </main>
     </div>
+    </AppShell>
   );
 }
