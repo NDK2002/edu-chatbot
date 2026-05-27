@@ -1,12 +1,13 @@
 import logging
 import os
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from backend.services.content_safety import is_safe, is_meaningful_question
 from backend.services.intent_detector import detect, solve
 from backend.services.vector_search import search
 from backend.services.gemini import ask_gemini
 from dotenv import load_dotenv
+from google.genai.errors import ServerError
 
 load_dotenv()
 router = APIRouter()
@@ -19,7 +20,7 @@ class ChatRequest(BaseModel):
     message: str
     grade: int = 0          # 0 = no grade filter (search all grades 1–5)
     language: str = "vi"    # "vi" | "tay_nung"
-    mode: str
+    mode: str               # "student" | "teacher"
 
 
 class VocabEntry(BaseModel):
@@ -73,23 +74,30 @@ async def chat(req: ChatRequest):
 
     # 3. Vector search
     result = await search(req.message, grade=req.grade)
-    if result and result["score"] >= SCORE_THRESHOLD:
-        log.info("[CHAT] → vector  score=%.4f  title=%r", result["score"], result.get("title"))
-        return ChatResponse(
-            answer=result["content"],
-            source="vector",
-            score=result["score"],
-            grade=result.get("grade"),
-        )
+    # if result and result["score"] >= SCORE_THRESHOLD:
+    #     log.info("[CHAT] → rerank score=%.4f  title=%r", result["score"], result.get("title"))
+    #     return ChatResponse(
+    #         answer=result["content"],
+    #         source="vector",
+    #         score=result["score"],
+    #         grade=result.get("grade"),
+    #     )
 
     # 4. Gemini fallback
-    context = result["content"] if result else ""
-    log.info("[CHAT] → llm  has_context=%s  score=%s context=%r",
-                bool(context), f"{result['score']:.4f}" if result else "N/A", context[:100])
-    answer = await ask_gemini(
-        prompt=req.message,
-        context=context,
-        grade=req.grade,
-        language=req.language,
-    )
-    return ChatResponse(answer=answer, source="llm")
+    context = result["context"] if result else ""
+    log.info("[CHAT] → llm  has_context=%s  rerank_score=%s context=%r",
+                bool(context), f"{result['top_rerank_score']:.4f}" if result else "N/A", context[:100])
+    try:
+        answer = await ask_gemini(
+            prompt=req.message,
+            context=context,
+            grade=req.grade,
+            language=req.language,
+            role=req.mode,
+        )
+        return ChatResponse(answer=answer, source="llm")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("[CHAT] Unexpected error: %s", e)
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR")
