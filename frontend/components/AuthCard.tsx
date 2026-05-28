@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Image from "next/image";
 import { login, register } from "@/app/auth/actions";
 
 type Mode = "login" | "register";
@@ -54,8 +55,10 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
       <div className="w-full max-w-sm">
         {/* Logo — fade-in once on load */}
         <div className="text-center mb-8 animate-page-in">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg mx-auto mb-3 text-2xl select-none">
-            📚
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg mx-auto mb-3 select-none">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
+              <path d="M11.25 4.533A9.707 9.707 0 0 0 6 3a9.735 9.735 0 0 0-3.25.555.75.75 0 0 0-.5.707v14.25a.75.75 0 0 0 1 .707A8.237 8.237 0 0 1 6 18.75c1.995 0 3.823.7 5.25 1.855V4.533ZM12.75 20.605A8.214 8.214 0 0 1 18 18.75c.966 0 1.89.166 2.75.47a.75.75 0 0 0 1-.708V4.262a.75.75 0 0 0-.5-.707A9.735 9.735 0 0 0 18 3a9.707 9.707 0 0 0-5.25 1.533v16.072Z" />
+            </svg>
           </div>
           <h1 className="text-xl font-bold text-sky-800">Chatbot Giáo dục</h1>
           <p className="text-sm text-sky-500 mt-1">Việt–Tày/Nùng · Lớp 1–5</p>
@@ -151,7 +154,7 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
                   Bạn là
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {ROLES.map(({ value, emoji, label }) => (
+                  {ROLES.map(({ value, icon, label }) => (
                     <button
                       key={value}
                       type="button"
@@ -162,24 +165,12 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
                           : "border-gray-200 bg-gray-50 text-gray-600 hover:border-sky-200"
                       }`}
                     >
-                      <span className="text-base">{emoji}</span>
+                      <Image src={icon} alt={label} width={20} height={20} />
                       {label}
                     </button>
                   ))}
                 </div>
               </div>
-
-              {role === "student" && (
-                <Field label="Đang học lớp">
-                  <select name="grade" className={inputCls}>
-                    {[1, 2, 3, 4, 5].map((g) => (
-                      <option key={g} value={g}>
-                        Lớp {g}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
 
               {registerState?.error && (
                 <ErrorBox msg={translateRegisterError(registerState.error)} />
@@ -199,9 +190,9 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
 const inputCls =
   "w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 transition-shadow";
 
-const ROLES: { value: Role; emoji: string; label: string }[] = [
-  { value: "student", emoji: "🧒", label: "Học sinh" },
-  { value: "teacher", emoji: "👩‍🏫", label: "Giáo viên" },
+const ROLES: { value: Role; icon: string; label: string }[] = [
+  { value: "student", icon: "/student-icon.png", label: "Học sinh" },
+  { value: "teacher", icon: "/teacher-icon.png", label: "Giáo viên" },
 ];
 
 function TabButton({

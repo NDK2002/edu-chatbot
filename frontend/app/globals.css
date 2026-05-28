@@ -8,8 +8,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-be-vietnam);
   --animate-page-in: page-in 220ms ease-out both;
   --animate-slide-exit-left: slide-exit-left 190ms ease-in forwards;
   --animate-slide-exit-right: slide-exit-right 190ms ease-in forwards;
@@ -50,5 +49,5 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-be-vietnam), sans-serif;
 }

@@ -38,15 +38,11 @@ export async function register(_prevState: unknown, formData: FormData) {
   if (username.length < 3) return { error: "Tên đăng nhập phải có ít nhất 3 ký tự" };
 
   const role = formData.get("role") as "student" | "teacher";
-  const gradeRaw = formData.get("grade");
   const metadata: Record<string, unknown> = {
     username,
     display_name: (formData.get("display_name") as string).trim(),
     role,
   };
-  if (role === "student" && gradeRaw) {
-    metadata.grade = Number(gradeRaw);
-  }
 
   const { data, error } = await supabase.auth.signUp({
     email: toEmail(username),
