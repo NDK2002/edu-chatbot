@@ -1,6 +1,7 @@
 -- profiles: extend Supabase auth.users
 create table profiles (
   id uuid references auth.users on delete cascade primary key,
+  username text unique,
   display_name text,
   role text check (role in ('student','teacher')) default 'student',
   grade int check (grade between 1 and 9),
@@ -12,8 +13,9 @@ create table profiles (
 create or replace function handle_new_user()
 returns trigger as $$
 begin
-  insert into profiles (id, display_name, role)
+  insert into profiles (id, username, display_name, role)
   values (new.id,
+          new.raw_user_meta_data->>'username',
           new.raw_user_meta_data->>'display_name',
           coalesce(new.raw_user_meta_data->>'role', 'student'));
   return new;

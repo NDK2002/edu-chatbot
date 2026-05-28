@@ -80,13 +80,13 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
           {/* Forms — conditionally rendered so DOM updates when mode switches */}
           {isLogin ? (
             <form action={loginAction} className="space-y-4">
-              <Field label="Email">
+              <Field label="Tên đăng nhập">
                 <input
-                  name="email"
-                  type="email"
+                  name="username"
+                  type="text"
                   required
-                  autoComplete="email"
-                  placeholder="ten@email.com"
+                  autoComplete="username"
+                  placeholder="vd: khang.nd"
                   className={inputCls}
                 />
               </Field>
@@ -116,18 +116,19 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
                   type="text"
                   required
                   autoComplete="name"
-                  placeholder="Ví dụ: Thành"
+                  placeholder="Ví dụ: Khang Nguyễn"
                   className={inputCls}
                 />
               </Field>
 
-              <Field label="Email">
+              <Field label="Tên đăng nhập">
                 <input
-                  name="email"
-                  type="email"
+                  name="username"
+                  type="text"
                   required
-                  autoComplete="email"
-                  placeholder="ten@email.com"
+                  autoComplete="username"
+                  placeholder="vd: khang.nd"
+                  pattern="[a-zA-Z0-9_]{3,20}"
                   className={inputCls}
                 />
               </Field>
@@ -274,16 +275,15 @@ function SubmitButton({
 }
 
 function translateLoginError(msg: string): string {
-  if (msg.includes("Invalid login credentials")) return "Sai email hoặc mật khẩu.";
-  if (msg.includes("Email not confirmed")) return "Vui lòng xác nhận email trước khi đăng nhập.";
+  if (msg.includes("Invalid login credentials")) return "Sai tên đăng nhập hoặc mật khẩu.";
   if (msg.includes("Too many requests")) return "Quá nhiều lần thử. Vui lòng đợi vài phút.";
   return "Đã có lỗi xảy ra. Vui lòng thử lại.";
 }
 
 function translateRegisterError(msg: string): string {
-  if (msg.includes("User already registered")) return "Email này đã được đăng ký.";
+  if (msg.includes("User already registered") || msg.includes("already been registered"))
+    return "Tên đăng nhập này đã có người dùng rồi.";
   if (msg.includes("Password should be at least")) return "Mật khẩu phải có ít nhất 6 ký tự.";
-  if (msg.includes("Unable to validate email")) return "Email không hợp lệ.";
   if (msg.includes("Too many requests")) return "Quá nhiều lần thử. Vui lòng đợi vài phút.";
   return "Đã có lỗi xảy ra. Vui lòng thử lại.";
 }
