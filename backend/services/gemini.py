@@ -180,7 +180,20 @@ async def stream_gemini(
     language: str = "vi",
     role: str = "student",
 ) -> AsyncGenerator[str, None]:
-    """Stream response từ Gemini theo từng chunk text. Không dùng Redis cache."""
+    """Stream response từ Gemini. Cache hit → yield single chunk từ Redis; miss → stream + lưu cache."""
+    cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}:{role}")
+
+    try:
+        r = await _get_redis()
+        cached = await r.get(cache_key)
+        if cached:
+            log.info("[GEMINI] stream cache hit  key=%s", cache_key[:40])
+            yield cached.decode("utf-8")
+            return
+    except Exception as e:
+        log.warning("[GEMINI] Redis unavailable, skipping cache: %s", e)
+        r = None
+
     if context:
         full_prompt = f"Dựa vào tài liệu sau:\n{context}\n\nHãy trả lời câu hỏi: {prompt}"
     else:
@@ -190,9 +203,11 @@ async def stream_gemini(
         full_prompt = f"{full_prompt}\n\nLưu ý: Học sinh đang học lớp {grade}."
 
     client = _get_client()
+    log.info("[GEMINI] stream cache miss → Gemini  key=%s", cache_key[:40])
 
     for model in FALLBACK_MODELS:
         try:
+            full_response = ""
             stream = await client.aio.models.generate_content_stream(
                 model=model,
                 contents=full_prompt,
@@ -204,7 +219,15 @@ async def stream_gemini(
             )
             async for chunk in stream:
                 if chunk.text:
+                    full_response += chunk.text
                     yield chunk.text
+
+            if full_response and r is not None:
+                try:
+                    await r.setex(cache_key, CACHE_TTL, full_response.encode("utf-8"))
+                    log.info("[GEMINI] stream cached  key=%s  len=%d", cache_key[:40], len(full_response))
+                except Exception as e:
+                    log.warning("[GEMINI] Failed to write stream cache: %s", e)
             return
         except ServerError as e:
             if e.code == 503:

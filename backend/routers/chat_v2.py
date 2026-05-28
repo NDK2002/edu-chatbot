@@ -5,17 +5,20 @@ math RAG + từ điển Tày/Nùng cho cùng một câu hỏi.
 ChatRequest / ChatResponse giữ nguyên schema như chat.py v1.
 """
 
+import asyncio
 import json
 import logging
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from backend.dependencies import get_optional_user
 from backend.services.content_safety import is_meaningful_question, is_safe
 from backend.services.gemini import ask_gemini, stream_gemini
 from backend.services.orchestrator import QueryType, orchestrate
+from backend.services.supabase_client import get_or_create_session, save_messages
 
 load_dotenv()
 router = APIRouter()
@@ -163,8 +166,28 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _save_history(
+    user_id: str,
+    mode: str,
+    user_msg: str,
+    assistant_msg: str,
+    query_type: str,
+    source: str,
+) -> None:
+    """Lưu cặp tin nhắn vào DB sau khi stream xong. Lỗi không ảnh hưởng response."""
+    try:
+        session_id = await get_or_create_session(user_id, mode)
+        await save_messages(session_id, user_msg, assistant_msg, query_type, source)
+        log.debug("[CHAT_V2] history saved  session=%s", session_id)
+    except Exception as exc:
+        log.warning("[CHAT_V2] history save failed: %s", exc)
+
+
 @router.post("/")
-async def chat(req: ChatRequest):
+async def chat(
+    req: ChatRequest,
+    user_id: str | None = Depends(get_optional_user),
+):
     log.info(
         "[CHAT_V2] message=%r  grade=%d  lang=%s  mode=%s",
         req.message,
@@ -227,6 +250,11 @@ async def chat(req: ChatRequest):
             })
             yield _sse({"type": "chunk", "text": mr.formula})
             yield _sse({"type": "done"})
+            if user_id:
+                asyncio.create_task(_save_history(
+                    user_id, req.mode, req.message, mr.formula,
+                    result.query_type.value, "rule_engine",
+                ))
 
         return StreamingResponse(_rule_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
@@ -240,6 +268,7 @@ async def chat(req: ChatRequest):
     )
 
     async def _gemini_stream():
+        full_text: list[str] = []
         yield _sse({
             "type": "metadata",
             "source": result.query_type.value,
@@ -254,10 +283,16 @@ async def chat(req: ChatRequest):
                 language=req.language,
                 role=req.mode,
             ):
+                full_text.append(chunk)
                 yield _sse({"type": "chunk", "text": chunk})
         except Exception as e:
             log.error("[CHAT_V2] stream_gemini error: %s", e)
             yield _sse({"type": "error", "message": "INTERNAL_ERROR"})
         yield _sse({"type": "done"})
+        if user_id:
+            asyncio.create_task(_save_history(
+                user_id, req.mode, req.message, "".join(full_text),
+                result.query_type.value, "gemini",
+            ))
 
     return StreamingResponse(_gemini_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
