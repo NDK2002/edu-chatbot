@@ -34,7 +34,7 @@ services:
       - edu-chatbot-network
     ports:
       - "6379:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-password}
+    command: redis-server --maxmemory ${REDIS_MAX_MEMORY:-256mb} --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-password}
     volumes:
       - redis_data:/data
     restart: always
