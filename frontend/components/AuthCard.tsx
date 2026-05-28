@@ -57,7 +57,7 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg mx-auto mb-3 text-2xl select-none">
             📚
           </div>
-          <h1 className="text-xl font-bold text-sky-800">Chatbot Học Toán</h1>
+          <h1 className="text-xl font-bold text-sky-800">Chatbot Giáo dục</h1>
           <p className="text-sm text-sky-500 mt-1">Việt–Tày/Nùng · Lớp 1–5</p>
         </div>
 
@@ -128,7 +128,6 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
                   required
                   autoComplete="username"
                   placeholder="vd: khang.nd"
-                  pattern="[a-zA-Z0-9_]{3,20}"
                   className={inputCls}
                 />
               </Field>
@@ -281,9 +280,13 @@ function translateLoginError(msg: string): string {
 }
 
 function translateRegisterError(msg: string): string {
+  if (msg === "EMAIL_CONFIRM_STILL_ON")
+    return "Cần tắt \"Confirm email\" trong Supabase dashboard (Authentication → Policies) rồi thử lại.";
   if (msg.includes("User already registered") || msg.includes("already been registered"))
     return "Tên đăng nhập này đã có người dùng rồi.";
-  if (msg.includes("Password should be at least")) return "Mật khẩu phải có ít nhất 6 ký tự.";
+  if (msg.includes("Password should be at least") || msg.includes("weak"))
+    return "Mật khẩu phải có ít nhất 6 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt (vd: Abc@123).";
   if (msg.includes("Too many requests")) return "Quá nhiều lần thử. Vui lòng đợi vài phút.";
+  if (msg.includes("Database error")) return "Lỗi hệ thống. Vui lòng liên hệ quản trị viên.";
   return "Đã có lỗi xảy ra. Vui lòng thử lại.";
 }

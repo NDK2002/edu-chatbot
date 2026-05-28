@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 // Học sinh dân tộc thiểu số thường không có email.
 // Username được map sang synthetic email nội bộ để dùng với Supabase Auth.
 // Domain này không cần tồn tại thật — email confirmation phải TẮT trong Supabase dashboard.
-const SYNTHETIC_DOMAIN = "edu-chatbot.local";
+const SYNTHETIC_DOMAIN = "students.app";
 
 function toEmail(username: string): string {
   return `${username}@${SYNTHETIC_DOMAIN}`;
@@ -28,7 +28,7 @@ export async function login(_prevState: unknown, formData: FormData) {
   });
 
   if (error) return { error: error.message };
-  redirect("/chat");
+  redirect("/student");
 }
 
 export async function register(_prevState: unknown, formData: FormData) {
@@ -48,14 +48,18 @@ export async function register(_prevState: unknown, formData: FormData) {
     metadata.grade = Number(gradeRaw);
   }
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: toEmail(username),
     password: formData.get("password") as string,
     options: { data: metadata },
   });
 
   if (error) return { error: error.message };
-  redirect("/chat");
+
+  // session = null nghĩa là Supabase đang chờ xác nhận email (confirm email chưa tắt)
+  if (!data.session) return { error: "EMAIL_CONFIRM_STILL_ON" };
+
+  redirect("/student");
 }
 
 export async function logout() {

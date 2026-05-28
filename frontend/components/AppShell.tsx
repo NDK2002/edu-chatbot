@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { logout } from "@/app/auth/actions";
 
 const NAV = [
   { href: "/student",    emoji: "💬", label: "Chat học sinh", short: "Chat"     },
@@ -51,8 +52,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="px-4 py-3 border-t border-gray-100">
+        <div className="px-4 py-3 border-t border-gray-100 space-y-2">
           <p className="text-xs text-gray-400">SGK Cánh Diều · Lớp 1–5</p>
+          <form action={logout}>
+            <button
+              type="submit"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <span className="text-base">🚪</span>
+              Đăng xuất
+            </button>
+          </form>
         </div>
       </aside>
 
@@ -82,6 +92,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          <form action={logout} className="flex-1">
+            <button
+              type="submit"
+              className="w-full h-full flex flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium text-gray-500 hover:text-red-600 transition-colors border-t-2 border-transparent"
+            >
+              <span className="text-xl leading-none">🚪</span>
+              <span>Thoát</span>
+            </button>
+          </form>
         </nav>
       </div>
     </div>

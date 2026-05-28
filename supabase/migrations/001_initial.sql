@@ -13,7 +13,7 @@ create table profiles (
 create or replace function handle_new_user()
 returns trigger as $$
 begin
-  insert into profiles (id, username, display_name, role)
+  insert into public.profiles (id, username, display_name, role)
   values (new.id,
           new.raw_user_meta_data->>'username',
           new.raw_user_meta_data->>'display_name',
