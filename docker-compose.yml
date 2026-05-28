@@ -58,10 +58,8 @@ services:
 volumes:
   qdrant_data:
     name: qdrant_data
-    external: true
   redis_data:
     name: redis_data
-    external: true
 
 networks:
   edu-chatbot-network:
