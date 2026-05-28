@@ -27,6 +27,7 @@ interface Props {
   grade?: number;
   loading?: boolean;
   animate?: boolean;
+  streaming?: boolean;
 }
 
 export default function ChatBubble({
@@ -38,12 +39,20 @@ export default function ChatBubble({
   grade,
   loading,
   animate = false,
+  streaming = false,
 }: Props) {
   const [displayed, setDisplayed] = useState(animate ? "" : content);
   const [isDone, setIsDone] = useState(!animate);
   const indexRef = useRef(0);
 
   useEffect(() => {
+    // Real-time streaming: parent accumulates text, just mirror it with cursor
+    if (streaming) {
+      setDisplayed(content);
+      setIsDone(false);
+      return;
+    }
+
     if (!animate || !content) {
       setDisplayed(content);
       setIsDone(true);
@@ -69,7 +78,7 @@ export default function ChatBubble({
     }, 25);
 
     return () => clearInterval(id);
-  }, [content, animate]);
+  }, [content, animate, streaming]);
 
   if (role === "user") {
     return (
@@ -87,7 +96,7 @@ export default function ChatBubble({
         <Image src="/bot-icon.png" alt="Bot" width={24} height={24} />
       </div>
       <div className="max-w-[85%] bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-        {loading ? (
+        {loading || (streaming && !content) ? (
           <div className="flex items-center gap-1.5 py-1">
             <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
             <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
@@ -97,12 +106,12 @@ export default function ChatBubble({
           <>
             <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
               {displayed}
-              {!isDone && (
+              {(!isDone || streaming) && (
                 <span className="inline-block w-0.5 h-3.5 bg-gray-500 ml-0.5 align-middle animate-pulse" />
               )}
             </p>
 
-            {isDone && steps && steps.length > 0 && (
+            {isDone && !streaming && steps && steps.length > 0 && (
               <div className="mt-3 bg-sky-50 border border-sky-100 rounded-xl p-3">
                 <p className="text-xs font-bold text-sky-700 mb-2 flex items-center gap-1">
                   <span>📝</span> Hướng dẫn giải từng bước
@@ -120,7 +129,7 @@ export default function ChatBubble({
               </div>
             )}
 
-            {isDone && vocab && vocab.length > 0 && (
+            {isDone && !streaming && vocab && vocab.length > 0 && (
               <>
                 <VocabTable vocab={vocab} />
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -131,7 +140,7 @@ export default function ChatBubble({
               </>
             )}
 
-            {isDone && (source || grade) && (
+            {isDone && !streaming && (source || grade) && (
               <p className="mt-2 text-xs text-gray-400">
                 {grade ? `Lớp ${grade}` : ""}
                 {grade && source ? " · " : ""}

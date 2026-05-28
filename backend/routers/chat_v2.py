@@ -5,14 +5,16 @@ math RAG + từ điển Tày/Nùng cho cùng một câu hỏi.
 ChatRequest / ChatResponse giữ nguyên schema như chat.py v1.
 """
 
+import json
 import logging
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.content_safety import is_meaningful_question, is_safe
-from backend.services.gemini import ask_gemini
+from backend.services.gemini import ask_gemini, stream_gemini
 from backend.services.orchestrator import QueryType, orchestrate
 
 load_dotenv()
@@ -151,7 +153,17 @@ def _build_context(result) -> str:
 # Endpoint
 # ---------------------------------------------------------------------------
 
-@router.post("/", response_model=ChatResponse)
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/")
 async def chat(req: ChatRequest):
     log.info(
         "[CHAT_V2] message=%r  grade=%d  lang=%s  mode=%s",
@@ -161,17 +173,26 @@ async def chat(req: ChatRequest):
         req.mode,
     )
 
-    # 1. Safety
+    # 1. Safety — still SSE so frontend parser stays consistent
     if not is_safe(req.message):
         log.info("[CHAT_V2] → BLOCKED by content_safety")
-        return ChatResponse(answer="Câu hỏi không phù hợp.", source="safety")
+
+        async def _safety_stream():
+            yield _sse({"type": "metadata", "source": "safety"})
+            yield _sse({"type": "chunk", "text": "Câu hỏi không phù hợp."})
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(_safety_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     if not is_meaningful_question(req.message):
         log.info("[CHAT_V2] → BLOCKED by is_meaningful_question")
-        return ChatResponse(
-            answer="Cô chưa hiểu câu hỏi này. Con hãy hỏi về bài Toán hoặc môn học nhé!",
-            source="safety",
-        )
+
+        async def _unclear_stream():
+            yield _sse({"type": "metadata", "source": "safety"})
+            yield _sse({"type": "chunk", "text": "Cô chưa hiểu câu hỏi này. Con hãy hỏi về bài Toán hoặc môn học nhé!"})
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(_unclear_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     # 2. Orchestrate
     result = await orchestrate(
@@ -188,7 +209,7 @@ async def chat(req: ChatRequest):
         bool(result.dict_context),
     )
 
-    # 3. Rule Engine shortcut
+    # 3. Rule Engine shortcut — wrap in SSE for consistent frontend handling
     if (
         result.query_type == QueryType.MATH_CALCULATE
         and result.math_result is not None
@@ -196,32 +217,47 @@ async def chat(req: ChatRequest):
     ):
         mr = result.math_result
         log.info("[CHAT_V2] → rule_engine  answer=%r", mr.answer)
-        return ChatResponse(
-            answer=mr.formula,
-            steps=mr.steps,
-            source="rule_engine",
-        )
 
-    # 4. Gọi Gemini với context tổng hợp
+        async def _rule_stream():
+            yield _sse({
+                "type": "metadata",
+                "source": "rule_engine",
+                "intent": mr.formula_key,
+                "steps": mr.steps,
+            })
+            yield _sse({"type": "chunk", "text": mr.formula})
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(_rule_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    # 4. Stream Gemini với context tổng hợp
     context = _build_context(result)
+    vocab_list = _build_vocab(result.dict_context) if result.dict_context else []
     log.info(
-        "[CHAT_V2] → llm  context_len=%d  type=%s",
+        "[CHAT_V2] → stream_gemini  context_len=%d  type=%s",
         len(context),
         result.query_type.value,
     )
 
-    try:
-        answer = await ask_gemini(
-            prompt=req.message,
-            context=context,
-            grade=req.grade,
-            language=req.language,
-            role=req.mode,
-        )
-        vocab = _build_vocab(result.dict_context) if result.dict_context else None
-        return ChatResponse(answer=answer, source="llm", vocab=vocab or None)
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error("[CHAT_V2] Unexpected error: %s", e)
-        raise HTTPException(status_code=500, detail="INTERNAL_ERROR")
+    async def _gemini_stream():
+        yield _sse({
+            "type": "metadata",
+            "source": result.query_type.value,
+            "intent": result.math_result.formula_key if result.math_result else None,
+            "vocab": [{"vi": v.vi, "tay": v.tay, "nung": v.nung} for v in vocab_list] if vocab_list else None,
+        })
+        try:
+            async for chunk in stream_gemini(
+                prompt=req.message,
+                context=context,
+                grade=req.grade,
+                language=req.language,
+                role=req.mode,
+            ):
+                yield _sse({"type": "chunk", "text": chunk})
+        except Exception as e:
+            log.error("[CHAT_V2] stream_gemini error: %s", e)
+            yield _sse({"type": "error", "message": "INTERNAL_ERROR"})
+        yield _sse({"type": "done"})
+
+    return StreamingResponse(_gemini_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)

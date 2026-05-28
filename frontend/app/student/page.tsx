@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 import Image from "next/image";
 import AppShell from "@/components/AppShell";
 import ChatBubble from "@/components/ChatBubble";
-import { sendChatMessage, ChatResponse, RateLimitError } from "@/lib/api";
+import { streamChat, ChatResponse, RateLimitError } from "@/lib/api";
 
 interface Message {
   id: number;
@@ -16,6 +16,7 @@ interface Message {
   grade?: number;
   loading?: boolean;
   animate?: boolean;
+  streaming?: boolean;
 }
 
 const CHAT_STORAGE_KEY = "edu-chatbot-student-messages";
@@ -84,7 +85,7 @@ function subscribeToMessages(listener: () => void) {
 function saveMessages(messages: Message[]) {
   currentMessagesSnapshot = messages;
   if (typeof window !== "undefined") {
-    const persistedMessages = messages.filter((msg) => !msg.loading);
+    const persistedMessages = messages.filter((msg) => !msg.loading && !msg.streaming);
     window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistedMessages));
   }
   emitStoredMessagesChange();
@@ -152,38 +153,77 @@ export default function StudentPage() {
     setIsSending(true);
 
     try {
-      const res = await sendChatMessage(trimmed, "student");
-      updateMessages((prev) =>
-        prev.map((m) =>
-          m.id === botId
-            ? {
-                ...m,
-                loading: false,
-                animate: true,
-                content: res.answer,
-                steps: res.steps,
-                vocab: res.vocab,
-                source: res.source,
-                grade: res.grade,
-              }
-            : m
-        )
+      await streamChat(
+        { message: trimmed, mode: "student" },
+        // onChunk — append text, switch from loading to streaming on first chunk
+        (chunk) => {
+          updateMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId
+                ? { ...m, loading: false, streaming: true, content: m.content + chunk }
+                : m
+            )
+          );
+        },
+        // onMetadata — store source/vocab/steps from server before chunks arrive
+        (meta) => {
+          updateMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId
+                ? {
+                    ...m,
+                    loading: false,
+                    streaming: true,
+                    source: meta.source,
+                    vocab: meta.vocab ?? undefined,
+                    steps: meta.steps ?? undefined,
+                  }
+                : m
+            )
+          );
+        },
+        // onDone — mark streaming complete, vocab/steps now visible
+        () => {
+          updateMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId ? { ...m, streaming: false } : m
+            )
+          );
+        },
+        // onError
+        (error) => {
+          const botContent =
+            error === "AI_UNAVAILABLE"
+              ? "Hệ thống đang bận, vui lòng thử lại sau vài phút."
+              : "Đã có lỗi xảy ra. Vui lòng thử lại sau.";
+          updateMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId
+                ? { ...m, loading: false, streaming: false, content: botContent }
+                : m
+            )
+          );
+        },
       );
     } catch (err) {
-      let botContent: string;
       if (err instanceof RateLimitError) {
         setCooldownSeconds(err.resetInSeconds);
-        botContent = err.message;
-      } else if ((err as Error).message === "AI_UNAVAILABLE") {
-        botContent = "Hệ thống đang bận, vui lòng thử lại sau vài phút. 🙏";
+        updateMessages((prev) =>
+          prev.map((m) =>
+            m.id === botId
+              ? { ...m, loading: false, streaming: false, content: err.message }
+              : m
+          )
+        );
       } else {
-        botContent = "Đã có lỗi xảy ra. Vui lòng thử lại sau. 😢";
+        updateMessages((prev) =>
+          prev.map((m) =>
+            m.id === botId
+              ? { ...m, loading: false, streaming: false, content: "Đã có lỗi xảy ra. Vui lòng thử lại sau." }
+              : m
+          )
+        );
       }
-      updateMessages((prev) =>
-        prev.map((m) =>
-          m.id === botId ? { ...m, loading: false, content: botContent } : m
-        )
-      );
     } finally {
       setIsSending(false);
       inputRef.current?.focus();
@@ -201,7 +241,7 @@ export default function StudentPage() {
       {/* Header */}
       <header className="flex items-center gap-2 px-4 py-3 bg-white border-b border-sky-100 shadow-sm">
         <div className="md:hidden w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center shadow overflow-hidden">
-          <Image src="/student-icon.png" alt="Học sinh" width={22} height={22} />
+          <Image src="/student-icon.png" alt="Học sinh" width={22} height={22} loading="eager" />
         </div>
         <div>
           <h1 className="font-bold text-sky-800 text-sm leading-tight">Chat học sinh</h1>
@@ -222,6 +262,7 @@ export default function StudentPage() {
             grade={msg.grade}
             loading={msg.loading}
             animate={msg.animate}
+            streaming={msg.streaming}
           />
         ))}
         <div ref={bottomRef} />

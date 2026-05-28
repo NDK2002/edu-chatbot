@@ -2,6 +2,7 @@ import os
 import logging
 import redis.asyncio as aioredis
 import hashlib
+from typing import AsyncGenerator
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -167,6 +168,47 @@ async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: s
         except ServerError as e:
             if e.code == 503:
                 log.warning("[GEMINI] Model %s is unavailable (503). Retrying with next model...", model)
+                continue
+            raise
+    raise HTTPException(status_code=503, detail="AI_UNAVAILABLE")
+
+
+async def stream_gemini(
+    prompt: str,
+    context: str = "",
+    grade: int = 3,
+    language: str = "vi",
+    role: str = "student",
+) -> AsyncGenerator[str, None]:
+    """Stream response từ Gemini theo từng chunk text. Không dùng Redis cache."""
+    if context:
+        full_prompt = f"Dựa vào tài liệu sau:\n{context}\n\nHãy trả lời câu hỏi: {prompt}"
+    else:
+        full_prompt = prompt
+
+    if grade:
+        full_prompt = f"{full_prompt}\n\nLưu ý: Học sinh đang học lớp {grade}."
+
+    client = _get_client()
+
+    for model in FALLBACK_MODELS:
+        try:
+            stream = await client.aio.models.generate_content_stream(
+                model=model,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=get_system_prompt(role),
+                    max_output_tokens=2048,
+                    temperature=0.2,
+                ),
+            )
+            async for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
+            return
+        except ServerError as e:
+            if e.code == 503:
+                log.warning("[GEMINI] Model %s unavailable (503), trying next...", model)
                 continue
             raise
     raise HTTPException(status_code=503, detail="AI_UNAVAILABLE")

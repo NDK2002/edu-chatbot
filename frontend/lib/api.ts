@@ -26,6 +26,21 @@ export interface ChatResponse {
   grade?: number;
 }
 
+export interface ChatMetadata {
+  type: "metadata";
+  source: string;
+  intent?: string | null;
+  vocab?: VocabEntry[] | null;
+  steps?: string[] | null;
+}
+
+export interface ChatRequest {
+  message: string;
+  grade?: number;
+  language?: string;
+  mode: "student" | "teacher";
+}
+
 export interface LessonResponse {
   lesson_plan: string;
 }
@@ -50,6 +65,70 @@ export async function sendChatMessage(
     throw new Error(`Lỗi máy chủ: ${res.status}`);
   }
   return res.json();
+}
+
+export async function streamChat(
+  payload: ChatRequest,
+  onChunk: (text: string) => void,
+  onMetadata: (metadata: ChatMetadata) => void,
+  onDone: () => void,
+  onError: (error: string) => void,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v2/chat/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    onError("Không thể kết nối tới máy chủ AI. Vui lòng thử lại sau.");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 429) {
+      const data = await response.json();
+      throw new RateLimitError(data.message, data.reset_in_seconds, data.reason);
+    }
+    if (response.status === 503) {
+      onError("AI_UNAVAILABLE");
+      return;
+    }
+    onError(`Lỗi máy chủ: ${response.status}`);
+    return;
+  }
+
+  if (!response.body) {
+    onError("Không nhận được phản hồi từ máy chủ.");
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const data = JSON.parse(line.slice(6));
+        if (data.type === "metadata") onMetadata(data as ChatMetadata);
+        else if (data.type === "chunk") onChunk(data.text as string);
+        else if (data.type === "done") onDone();
+        else if (data.type === "error") onError((data.message as string) ?? "INTERNAL_ERROR");
+      } catch {
+        // ignore malformed SSE JSON
+      }
+    }
+  }
 }
 
 export async function generateLesson(
