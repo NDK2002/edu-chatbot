@@ -14,7 +14,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-app = FastAPI(title="Edu Chatbot API", version="0.1.0", redirect_slashes=False)
+app = FastAPI(title="Edu Chatbot API", version="0.1.0")
 
 cors_origins = [
     origin.strip()

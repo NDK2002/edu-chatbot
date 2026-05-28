@@ -6,8 +6,6 @@ services:
     container_name: edu_backend
     networks:
       - edu-chatbot-network
-    ports:
-      - "8000:8000"
     env_file: .env
     volumes:
       - ./data:/app/data          # mount data để ingest script đọc được
@@ -43,14 +41,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: edu_frontend
     networks:
       - edu-chatbot-network
     ports:
       - "3000:3000"
     env_file: .env
+    environment:
+      - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
     restart: unless-stopped
