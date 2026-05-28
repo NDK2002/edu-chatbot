@@ -10,12 +10,36 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --animate-page-in: page-in 220ms ease-out;
+  --animate-page-in: page-in 220ms ease-out both;
+  --animate-slide-exit-left: slide-exit-left 190ms ease-in forwards;
+  --animate-slide-exit-right: slide-exit-right 190ms ease-in forwards;
+  --animate-slide-enter-left: slide-enter-left 260ms ease-out both;
+  --animate-slide-enter-right: slide-enter-right 260ms ease-out both;
 }
 
 @keyframes page-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-exit-left {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-28px) scale(0.97); }
+}
+
+@keyframes slide-exit-right {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(28px) scale(0.97); }
+}
+
+@keyframes slide-enter-left {
+  from { opacity: 0; transform: translateX(-28px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes slide-enter-right {
+  from { opacity: 0; transform: translateX(28px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 html,
