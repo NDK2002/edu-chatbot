@@ -57,9 +57,17 @@ services:
 
 volumes:
   qdrant_data:
+    name: qdrant_data
+    external: true
   redis_data:
+    name: redis_data
+    external: true
 
 networks:
   edu-chatbot-network:
     name: edu-chatbot-network
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24
+          gateway: 172.30.20.1
