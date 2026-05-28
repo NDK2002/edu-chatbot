@@ -28,7 +28,7 @@ services:
     restart: always
 
   redis:
-    image: redis:lastest
+    image: redis:latest
     container_name: redis
     networks:
       - edu-chatbot-network
