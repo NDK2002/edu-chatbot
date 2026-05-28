@@ -2,9 +2,27 @@
 
 import { useState } from "react";
 import { SavedWord, saveWord, removeWord, isWordSaved } from "@/lib/saved-dictionary";
+import { getAccessToken } from "@/lib/supabase/client";
 
 interface SaveWordButtonProps {
   word: SavedWord;
+}
+
+async function syncVocabToBackend(word: SavedWord) {
+  const token = await getAccessToken();
+  if (!token) return;
+  await fetch("/api/history/vocab", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      vi: word.vi,
+      tay_variants: word.tay_variants,
+      nung_variants: word.nung_variants,
+    }),
+  }).catch(() => {});
 }
 
 export default function SaveWordButton({ word }: SaveWordButtonProps) {
@@ -17,6 +35,7 @@ export default function SaveWordButton({ word }: SaveWordButtonProps) {
     } else {
       saveWord({ ...word, saved_at: Date.now() });
       setSaved(true);
+      syncVocabToBackend(word);
     }
   }
 

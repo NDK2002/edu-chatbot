@@ -1,3 +1,5 @@
+import { getAccessToken } from "@/lib/supabase/client";
+
 const API_URL = "/api";
 
 export class RateLimitError extends Error {
@@ -74,11 +76,15 @@ export async function streamChat(
   onDone: () => void,
   onError: (error: string) => void,
 ): Promise<void> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   let response: Response;
   try {
     response = await fetch("/api/v2/chat/", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch {

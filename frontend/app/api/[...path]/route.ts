@@ -16,15 +16,19 @@ async function proxy(req: NextRequest): Promise<NextResponse> {
       ? await req.text()
       : undefined;
 
+  const forwardHeaders: Record<string, string> = {
+    "content-type": req.headers.get("content-type") ?? "application/json",
+    cookie: req.headers.get("cookie") ?? "",
+    "x-forwarded-for": clientIp,
+  };
+  const auth = req.headers.get("authorization");
+  if (auth) forwardHeaders["authorization"] = auth;
+
   let fastapiRes: Response;
   try {
     fastapiRes = await fetch(targetUrl, {
       method: req.method,
-      headers: {
-        "content-type": req.headers.get("content-type") ?? "application/json",
-        cookie: req.headers.get("cookie") ?? "",
-        "x-forwarded-for": clientIp,
-      },
+      headers: forwardHeaders,
       body,
     });
   } catch {
