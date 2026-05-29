@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import AppShell from "@/components/AppShell";
 import { generateLesson } from "@/lib/api";
 
 const SUBJECTS = ["Toán", "Tiếng Việt", "Tự nhiên và Xã hội", "Khoa học"];
@@ -35,7 +34,6 @@ export default function TeacherPage() {
   }
 
   return (
-    <AppShell>
     <div className="h-full overflow-y-auto bg-gradient-to-b from-emerald-50 to-teal-50">
       {/* Header */}
       <header className="flex items-center gap-2 px-4 py-3 bg-white border-b border-emerald-100 shadow-sm sticky top-0 z-10">
@@ -49,7 +47,6 @@ export default function TeacherPage() {
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-5">
-        {/* Form */}
         <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 p-5">
           <h2 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
             <span className="text-emerald-500 text-lg">📋</span>
@@ -72,9 +69,7 @@ export default function TeacherPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1.5">
-                  Lớp
-                </label>
+                <label className="block text-sm font-semibold text-gray-600 mb-1.5">Lớp</label>
                 <select
                   value={grade}
                   onChange={(e) => setGrade(Number(e.target.value))}
@@ -82,17 +77,13 @@ export default function TeacherPage() {
                   disabled={isLoading}
                 >
                   {GRADES.map((g) => (
-                    <option key={g} value={g}>
-                      Lớp {g}
-                    </option>
+                    <option key={g} value={g}>Lớp {g}</option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1.5">
-                  Môn học
-                </label>
+                <label className="block text-sm font-semibold text-gray-600 mb-1.5">Môn học</label>
                 <select
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
@@ -100,9 +91,7 @@ export default function TeacherPage() {
                   disabled={isLoading}
                 >
                   {SUBJECTS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
               </div>
@@ -119,16 +108,12 @@ export default function TeacherPage() {
                   Đang tạo giáo án...
                 </>
               ) : (
-                <>
-                  <span>✨</span>
-                  Tạo giáo án
-                </>
+                <><span>✨</span>Tạo giáo án</>
               )}
             </button>
           </form>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-2">
             <span>⚠️</span>
@@ -136,7 +121,6 @@ export default function TeacherPage() {
           </div>
         )}
 
-        {/* Result */}
         {result && (
           <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 p-5">
             <div className="flex items-center justify-between mb-3">
@@ -145,9 +129,7 @@ export default function TeacherPage() {
                 Giáo án được tạo
               </h2>
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(result);
-                }}
+                onClick={() => navigator.clipboard.writeText(result)}
                 className="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors font-medium border border-emerald-200"
               >
                 📋 Sao chép
@@ -159,7 +141,6 @@ export default function TeacherPage() {
           </div>
         )}
 
-        {/* Empty state */}
         {!result && !isLoading && (
           <div className="text-center py-8 text-gray-400">
             <div className="text-5xl mb-3">📝</div>
@@ -170,6 +151,5 @@ export default function TeacherPage() {
         )}
       </main>
     </div>
-    </AppShell>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import AppShell from "@/components/AppShell";
 import DictionaryTable from "@/components/DictionaryTable";
 import {
   getSavedWords,
@@ -43,7 +42,6 @@ export default function DictionaryPage() {
       : words;
 
   return (
-    <AppShell>
     <div className="h-full overflow-y-auto bg-gradient-to-b from-sky-50 to-indigo-50">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white border-b border-sky-100 shadow-sm px-4 py-3 flex items-center gap-3">
@@ -82,6 +80,5 @@ export default function DictionaryPage() {
         <DictionaryTable words={filtered} onRemove={handleRemove} />
       </main>
     </div>
-    </AppShell>
   );
 }

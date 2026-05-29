@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 import Image from "next/image";
-import AppShell from "@/components/AppShell";
 import ChatBubble from "@/components/ChatBubble";
 import { streamChat, ChatResponse, RateLimitError } from "@/lib/api";
 
@@ -124,7 +123,6 @@ export default function StudentPage() {
     nextId.current = Math.max(0, ...messages.map((msg) => msg.id)) + 1;
   }, [messages]);
 
-  // Countdown timer for rate-limit cooldown
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
     const timer = setTimeout(() => setCooldownSeconds((s) => Math.max(0, s - 1)), 1000);
@@ -155,7 +153,6 @@ export default function StudentPage() {
     try {
       await streamChat(
         { message: trimmed, mode: "student" },
-        // onChunk — append text, switch from loading to streaming on first chunk
         (chunk) => {
           updateMessages((prev) =>
             prev.map((m) =>
@@ -165,7 +162,6 @@ export default function StudentPage() {
             )
           );
         },
-        // onMetadata — store source/vocab/steps from server before chunks arrive
         (meta) => {
           updateMessages((prev) =>
             prev.map((m) =>
@@ -182,7 +178,6 @@ export default function StudentPage() {
             )
           );
         },
-        // onDone — mark streaming complete, vocab/steps now visible
         () => {
           updateMessages((prev) =>
             prev.map((m) =>
@@ -190,7 +185,6 @@ export default function StudentPage() {
             )
           );
         },
-        // onError
         (error) => {
           const botContent =
             error === "AI_UNAVAILABLE"
@@ -236,7 +230,6 @@ export default function StudentPage() {
   }
 
   return (
-    <AppShell>
     <div className="flex flex-col h-full bg-gradient-to-b from-sky-50 to-indigo-50">
       {/* Header */}
       <header className="flex items-center gap-2 px-4 py-3 bg-white border-b border-sky-100 shadow-sm">
@@ -324,6 +317,5 @@ export default function StudentPage() {
         </button>
       </form>
     </div>
-    </AppShell>
   );
 }

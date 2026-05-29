@@ -44,7 +44,13 @@ const LogoutIcon = (
   </svg>
 );
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  displayName,
+}: {
+  children: React.ReactNode;
+  displayName?: string | null;
+}) {
   const pathname = usePathname();
 
   return (
@@ -86,7 +92,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="px-4 py-3 border-t border-gray-100 space-y-2">
-          <p className="text-xs text-gray-400">SGK Cánh Diều · Lớp 1–5</p>
+          {displayName && (
+            <div className="flex items-center gap-2 px-1 py-1">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+              <p className="text-sm font-medium text-gray-700 truncate">{displayName}</p>
+            </div>
+          )}
           <form action={logout}>
             <button
               type="submit"
