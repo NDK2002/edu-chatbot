@@ -16,6 +16,7 @@ export interface ConversationMessage {
   content: string;
   query_type?: string;
   source?: string;
+  steps?: string[];
   is_compacted: boolean;
   created_at: string;
 }

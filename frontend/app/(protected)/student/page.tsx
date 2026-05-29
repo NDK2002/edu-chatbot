@@ -93,6 +93,7 @@ export default function StudentPage() {
           role: m.role === "user" ? "user" : "bot",
           content: m.content,
           source: m.source ?? undefined,
+          steps: m.steps ?? undefined,
         }));
         nextIdRef.current = converted.length;
         setMessages(converted);

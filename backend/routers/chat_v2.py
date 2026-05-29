@@ -292,16 +292,20 @@ async def chat(
                 "conversation_id": conversation_id,
             })
             yield _sse({"type": "chunk", "text": mr.formula})
-            yield _sse({"type": "done"})
             if user_id and conversation_id:
                 auto_title = None
                 if message_count == 0:
                     auto_title = " ".join(req.message.split()[:5])[:30]
-                asyncio.create_task(save_conv_messages(
-                    conversation_id, req.message, mr.formula,
-                    result.query_type.value, "rule_engine",
-                    auto_title=auto_title, current_count=message_count,
-                ))
+                try:
+                    await save_conv_messages(
+                        conversation_id, req.message, mr.formula,
+                        result.query_type.value, "rule_engine",
+                        auto_title=auto_title, current_count=message_count,
+                        steps=mr.steps or None,
+                    )
+                except Exception as exc:
+                    log.warning("[CHAT_V2] rule_engine save failed: %s", exc)
+            yield _sse({"type": "done"})
 
         return StreamingResponse(_rule_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 

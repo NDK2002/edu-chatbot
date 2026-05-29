@@ -250,7 +250,7 @@ def _get_conversation_messages_sync(conv_id: str, user_id: str) -> dict | None:
     conv = conv_resp.data[0]
     msgs_resp = (
         sb.table("messages")
-        .select("id, role, content, query_type, source, is_compacted, created_at")
+        .select("id, role, content, query_type, source, steps, is_compacted, created_at")
         .eq("conversation_id", conv_id)
         .eq("is_compacted", False)
         .order("created_at", desc=False)
@@ -327,10 +327,20 @@ def _save_conv_messages_sync(
     source: str,
     auto_title: str | None,
     new_count: int,
+    steps: list[str] | None = None,
 ) -> None:
     sb = get_supabase()
     if sb is None:
         return
+    assistant_row: dict = {
+        "conversation_id": conv_id,
+        "role": "assistant",
+        "content": assistant_content,
+        "query_type": query_type,
+        "source": source,
+    }
+    if steps:
+        assistant_row["steps"] = steps
     sb.table("messages").insert([
         {
             "conversation_id": conv_id,
@@ -339,13 +349,7 @@ def _save_conv_messages_sync(
             "query_type": query_type,
             "source": source,
         },
-        {
-            "conversation_id": conv_id,
-            "role": "assistant",
-            "content": assistant_content,
-            "query_type": query_type,
-            "source": source,
-        },
+        assistant_row,
     ]).execute()
     update_data: dict = {
         "message_count": new_count,
@@ -364,6 +368,7 @@ async def save_conv_messages(
     source: str,
     auto_title: str | None = None,
     current_count: int = 0,
+    steps: list[str] | None = None,
 ) -> None:
     await asyncio.to_thread(
         _save_conv_messages_sync,
@@ -374,6 +379,7 @@ async def save_conv_messages(
         source,
         auto_title,
         current_count + 2,
+        steps,
     )
 
 
