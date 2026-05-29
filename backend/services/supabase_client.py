@@ -2,7 +2,7 @@
 Supabase client singleton + auth/DB helpers for FastAPI backend.
 
 - JWT verification: JWKS endpoint (RS256/ES256) — cơ chế JWT Signing Keys mới của Supabase
-  JWKS được cache 1 giờ, chỉ fetch lại khi hết TTL.
+JWKS được cache 1 giờ, chỉ fetch lại khi hết TTL.
 - DB calls: sync supabase-py wrapped trong asyncio.to_thread()
 - Graceful degradation: nếu env vars chưa set, DB features tắt nhưng app vẫn chạy
 """
@@ -38,17 +38,17 @@ def get_supabase():
         return _client
     if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
         log.warning(
-            "[SUPABASE] env thiếu — URL=%s KEY=%s",
+            "[SUPABASE] env missing — URL=%s KEY=%s",
             bool(SUPABASE_URL), bool(SUPABASE_SECRET_KEY),
         )
         return None
     try:
         from supabase import create_client
         _client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
-        log.info("[SUPABASE] client khởi tạo thành công")
+        log.info("[SUPABASE] client initialized successfully")
         return _client
     except Exception as exc:
-        log.error("[SUPABASE] create_client thất bại: %s", exc)
+        log.error("[SUPABASE] create_client failed: %s", exc)
         return None
 
 
@@ -68,7 +68,7 @@ def _fetch_jwks() -> dict:
     if _jwks_cache is not None and now - _jwks_fetched_at < _JWKS_TTL:
         return _jwks_cache
     if not SUPABASE_URL:
-        raise RuntimeError("SUPABASE_URL chưa set")
+        raise RuntimeError("SUPABASE_URL not configured")
     api_key = SUPABASE_PUBLISHABLE_KEY or SUPABASE_SECRET_KEY
     resp = httpx.get(
         f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json",
@@ -88,7 +88,7 @@ async def verify_jwt(token: str) -> str:
     Trả user_id (uuid string) hoặc raise HTTP 401.
     """
     if not SUPABASE_URL:
-        raise HTTPException(status_code=401, detail="SUPABASE_URL chưa được cấu hình")
+        raise HTTPException(status_code=401, detail="SUPABASE_URL not configured")
     try:
         jwks = await asyncio.to_thread(_fetch_jwks)
         payload = jwt.decode(
@@ -99,10 +99,10 @@ async def verify_jwt(token: str) -> str:
         )
         return payload["sub"]
     except (JWTError, KeyError):
-        raise HTTPException(status_code=401, detail="Token không hợp lệ hoặc đã hết hạn")
+        raise HTTPException(status_code=401, detail="Token is invalid or expired")
     except Exception as exc:
         log.warning("[SUPABASE] JWT verify error: %s", exc)
-        raise HTTPException(status_code=401, detail="Không thể xác thực token")
+        raise HTTPException(status_code=401, detail="Token verification failed")
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ async def verify_jwt(token: str) -> str:
 def _get_or_create_session_sync(user_id: str, mode: str) -> str:
     sb = get_supabase()
     if sb is None:
-        raise RuntimeError("Supabase chưa cấu hình")
+        raise RuntimeError("Supabase not configured")
 
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     resp = (
@@ -120,6 +120,7 @@ def _get_or_create_session_sync(user_id: str, mode: str) -> str:
         .select("id")
         .eq("user_id", user_id)
         .eq("mode", mode)
+        .eq("is_deleted", 0)
         .gte("created_at", cutoff)
         .order("created_at", desc=True)
         .limit(1)
@@ -197,6 +198,7 @@ def _list_conversations_sync(user_id: str) -> list[dict]:
         sb.table("conversations")
         .select("id, title, mode, is_compacted, message_count, last_message_at, created_at")
         .eq("user_id", user_id)
+        .eq("is_deleted", 0)
         .order("last_message_at", desc=True)
         .execute()
     )
@@ -210,7 +212,7 @@ async def list_conversations(user_id: str) -> list[dict]:
 def _create_conversation_sync(user_id: str, mode: str) -> dict:
     sb = get_supabase()
     if sb is None:
-        raise RuntimeError("Supabase chưa cấu hình")
+        raise RuntimeError("Supabase not configured")
     resp = (
         sb.table("conversations")
         .insert({"user_id": user_id, "mode": mode})
@@ -227,7 +229,8 @@ def _delete_conversation_sync(conv_id: str, user_id: str) -> None:
     sb = get_supabase()
     if sb is None:
         return
-    sb.table("conversations").delete().eq("id", conv_id).eq("user_id", user_id).execute()
+    sb.table("conversations").update({"is_deleted": 1}).eq("id", conv_id).eq("user_id", user_id).execute()
+    sb.table("messages").update({"is_deleted": 1}).eq("conversation_id", conv_id).execute()
 
 
 async def delete_conversation(conv_id: str, user_id: str) -> None:
@@ -243,6 +246,7 @@ def _get_conversation_messages_sync(conv_id: str, user_id: str) -> dict | None:
         .select("id, compact_summary")
         .eq("id", conv_id)
         .eq("user_id", user_id)
+        .eq("is_deleted", 0)
         .execute()
     )
     if not conv_resp.data:
@@ -250,9 +254,10 @@ def _get_conversation_messages_sync(conv_id: str, user_id: str) -> dict | None:
     conv = conv_resp.data[0]
     msgs_resp = (
         sb.table("messages")
-        .select("id, role, content, query_type, source, steps, is_compacted, created_at")
+        .select("id, role, content, query_type, source, steps, vocab, is_compacted, created_at")
         .eq("conversation_id", conv_id)
         .eq("is_compacted", False)
+        .eq("is_deleted", 0)
         .order("created_at", desc=False)
         .execute()
     )
@@ -269,7 +274,7 @@ async def get_conversation_messages(conv_id: str, user_id: str) -> dict | None:
 def _update_conversation_title_sync(conv_id: str, user_id: str, title: str) -> dict:
     sb = get_supabase()
     if sb is None:
-        raise RuntimeError("Supabase chưa cấu hình")
+        raise RuntimeError("Supabase not configured")
     resp = (
         sb.table("conversations")
         .update({"title": title})
@@ -303,6 +308,7 @@ def _get_recent_history_sync(conv_id: str, limit: int = 20) -> dict:
         .select("role, content")
         .eq("conversation_id", conv_id)
         .eq("is_compacted", False)
+        .eq("is_deleted", 0)
         .order("created_at", desc=True)
         .limit(limit)
         .execute()
@@ -328,6 +334,7 @@ def _save_conv_messages_sync(
     auto_title: str | None,
     new_count: int,
     steps: list[str] | None = None,
+    vocab: list[dict] | None = None,
 ) -> None:
     sb = get_supabase()
     if sb is None:
@@ -341,6 +348,8 @@ def _save_conv_messages_sync(
     }
     if steps:
         assistant_row["steps"] = steps
+    if vocab:
+        assistant_row["vocab"] = vocab
     sb.table("messages").insert([
         {
             "conversation_id": conv_id,
@@ -369,6 +378,7 @@ async def save_conv_messages(
     auto_title: str | None = None,
     current_count: int = 0,
     steps: list[str] | None = None,
+    vocab: list[dict] | None = None,
 ) -> None:
     await asyncio.to_thread(
         _save_conv_messages_sync,
@@ -380,6 +390,7 @@ async def save_conv_messages(
         auto_title,
         current_count + 2,
         steps,
+        vocab,
     )
 
 
@@ -392,6 +403,7 @@ def _count_uncompacted_sync(conv_id: str) -> int:
         .select("id", count="exact")
         .eq("conversation_id", conv_id)
         .eq("is_compacted", False)
+        .eq("is_deleted", 0)
         .execute()
     )
     return resp.count or 0
@@ -410,6 +422,7 @@ def _get_all_uncompacted_sync(conv_id: str) -> list[dict]:
         .select("id, role, content, created_at")
         .eq("conversation_id", conv_id)
         .eq("is_compacted", False)
+        .eq("is_deleted", 0)
         .order("created_at", desc=False)
         .execute()
     )
