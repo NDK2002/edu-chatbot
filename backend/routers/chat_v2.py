@@ -1,8 +1,7 @@
 """
 Router /v2/chat — version mới dùng orchestrator để điều phối
 math RAG + từ điển Tày/Nùng cho cùng một câu hỏi.
-
-ChatRequest / ChatResponse giữ nguyên schema như chat.py v1.
+Hỗ trợ conversation_id để lưu context lịch sử.
 """
 
 import asyncio
@@ -15,10 +14,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.dependencies import get_optional_user
+from backend.services.compactor import compact_conversation, should_compact
 from backend.services.content_safety import is_meaningful_question, is_safe
 from backend.services.gemini import ask_gemini, stream_gemini
 from backend.services.orchestrator import QueryType, orchestrate
-from backend.services.supabase_client import get_or_create_session, save_messages
+from backend.services.supabase_client import (
+    create_conversation,
+    get_or_create_session,
+    get_recent_history,
+    save_conv_messages,
+    save_messages,
+)
 
 load_dotenv()
 router = APIRouter()
@@ -27,9 +33,10 @@ log = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     message: str
-    grade: int = 0          # 0 = no grade filter (search all grades 1–5)
-    language: str = "vi"    # "vi" | "tay_nung"
-    mode: str               # "student" | "teacher"
+    conversation_id: str | None = None   # null = tạo conversation mới
+    grade: int = 0
+    language: str = "vi"
+    mode: str                             # "student" | "teacher"
 
 
 class VocabEntry(BaseModel):
@@ -40,7 +47,7 @@ class VocabEntry(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    source: str             # "rule_engine" | "vector" | "llm" | "safety"
+    source: str
     score: float | None = None
     intent: str | None = None
     steps: list[str] | None = None
@@ -49,7 +56,7 @@ class ChatResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build context string cho Gemini
+# Context formatters
 # ---------------------------------------------------------------------------
 
 def _format_math_context(contexts: list[dict]) -> str:
@@ -89,7 +96,6 @@ def _format_dict_context(contexts: list[dict]) -> str:
             else str(nung_variants)
         )
 
-        # Tày → Việt: payload có field 'tay' (đơn) thay vì tay_variants
         if direction == "tay_to_vi" and not tay_str:
             content = (ctx.get("content") or "").strip()
             if content:
@@ -136,24 +142,35 @@ def _build_vocab(dict_contexts: list[dict]) -> list[VocabEntry]:
     return entries
 
 
-def _build_context(result) -> str:
+def _build_rag_context(result) -> str:
     context_parts: list[str] = []
-
     if result.math_context:
         math_str = _format_math_context(result.math_context)
         if math_str:
             context_parts.append("Kiến thức Toán:\n" + math_str)
-
     if result.dict_context:
         dict_str = _format_dict_context(result.dict_context)
         if dict_str:
             context_parts.append("Từ điển Tày/Nùng:\n" + dict_str)
-
     return "\n\n".join(context_parts)
 
 
+def _build_history_context(messages: list[dict], compact_summary: str | None) -> str:
+    parts: list[str] = []
+    if compact_summary:
+        parts.append(f"[Tóm tắt cuộc hội thoại trước]: {compact_summary}")
+    if messages:
+        history_lines = []
+        for msg in messages:
+            label = "Học sinh" if msg["role"] == "user" else "Trợ lý"
+            content = msg["content"][:500]
+            history_lines.append(f"{label}: {content}")
+        parts.append("[Lịch sử cuộc hội thoại gần đây]\n" + "\n".join(history_lines))
+    return "\n\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
-# Endpoint
+# SSE helpers
 # ---------------------------------------------------------------------------
 
 _SSE_HEADERS = {
@@ -166,7 +183,11 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _save_history(
+# ---------------------------------------------------------------------------
+# Legacy history save (for unauthenticated / session-based flow)
+# ---------------------------------------------------------------------------
+
+async def _save_history_legacy(
     user_id: str,
     mode: str,
     user_msg: str,
@@ -174,14 +195,16 @@ async def _save_history(
     query_type: str,
     source: str,
 ) -> None:
-    """Lưu cặp tin nhắn vào DB sau khi stream xong. Lỗi không ảnh hưởng response."""
     try:
         session_id = await get_or_create_session(user_id, mode)
         await save_messages(session_id, user_msg, assistant_msg, query_type, source)
-        log.debug("[CHAT_V2] history saved  session=%s", session_id)
     except Exception as exc:
-        log.warning("[CHAT_V2] history save failed: %s", exc)
+        log.warning("[CHAT_V2] legacy history save failed: %s", exc)
 
+
+# ---------------------------------------------------------------------------
+# Endpoint
+# ---------------------------------------------------------------------------
 
 @router.post("/")
 async def chat(
@@ -189,19 +212,16 @@ async def chat(
     user_id: str | None = Depends(get_optional_user),
 ):
     log.info(
-        "[CHAT_V2] message=%r  grade=%d  lang=%s  mode=%s",
-        req.message,
-        req.grade,
-        req.language,
-        req.mode,
+        "[CHAT_V2] message=%r  conv=%s  grade=%d  lang=%s  mode=%s",
+        req.message, req.conversation_id, req.grade, req.language, req.mode,
     )
 
-    # 1. Safety — still SSE so frontend parser stays consistent
+    # 1. Safety checks
     if not is_safe(req.message):
         log.info("[CHAT_V2] → BLOCKED by content_safety")
 
         async def _safety_stream():
-            yield _sse({"type": "metadata", "source": "safety"})
+            yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
             yield _sse({"type": "chunk", "text": "Câu hỏi không phù hợp."})
             yield _sse({"type": "done"})
 
@@ -211,13 +231,35 @@ async def chat(
         log.info("[CHAT_V2] → BLOCKED by is_meaningful_question")
 
         async def _unclear_stream():
-            yield _sse({"type": "metadata", "source": "safety"})
+            yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
             yield _sse({"type": "chunk", "text": "Cô chưa hiểu câu hỏi này. Con hãy hỏi về bài Toán hoặc môn học nhé!"})
             yield _sse({"type": "done"})
 
         return StreamingResponse(_unclear_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
-    # 2. Orchestrate
+    # 2. Conversation management (authenticated users only)
+    conversation_id = req.conversation_id
+    history_context = ""
+    message_count = 0
+
+    if user_id:
+        try:
+            if not conversation_id:
+                conv = await create_conversation(user_id, req.mode)
+                conversation_id = conv["id"]
+                log.info("[CHAT_V2] Created new conversation %s", conversation_id)
+
+            hist = await get_recent_history(conversation_id, limit=20)
+            history_context = _build_history_context(
+                hist.get("messages", []),
+                hist.get("compact_summary"),
+            )
+            message_count = hist.get("message_count", 0)
+        except Exception as exc:
+            log.warning("[CHAT_V2] Conversation management error: %s", exc)
+            conversation_id = None
+
+    # 3. Orchestrate
     result = await orchestrate(
         req.message,
         grade=req.grade,
@@ -232,7 +274,7 @@ async def chat(
         bool(result.dict_context),
     )
 
-    # 3. Rule Engine shortcut — wrap in SSE for consistent frontend handling
+    # 4. Rule Engine shortcut
     if (
         result.query_type == QueryType.MATH_CALCULATE
         and result.math_result is not None
@@ -247,23 +289,35 @@ async def chat(
                 "source": "rule_engine",
                 "intent": mr.formula_key,
                 "steps": mr.steps,
+                "conversation_id": conversation_id,
             })
             yield _sse({"type": "chunk", "text": mr.formula})
             yield _sse({"type": "done"})
-            if user_id:
-                asyncio.create_task(_save_history(
-                    user_id, req.mode, req.message, mr.formula,
+            if user_id and conversation_id:
+                auto_title = None
+                if message_count == 0:
+                    auto_title = " ".join(req.message.split()[:5])[:30]
+                asyncio.create_task(save_conv_messages(
+                    conversation_id, req.message, mr.formula,
                     result.query_type.value, "rule_engine",
+                    auto_title=auto_title, current_count=message_count,
                 ))
 
         return StreamingResponse(_rule_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
-    # 4. Stream Gemini với context tổng hợp
-    context = _build_context(result)
+    # 5. Stream Gemini với context RAG + history
+    rag_context = _build_rag_context(result)
+    if history_context and rag_context:
+        full_context = history_context + "\n\n" + rag_context
+    elif history_context:
+        full_context = history_context
+    else:
+        full_context = rag_context
+
     vocab_list = _build_vocab(result.dict_context) if result.dict_context else []
     log.info(
         "[CHAT_V2] → stream_gemini  context_len=%d  type=%s",
-        len(context),
+        len(full_context),
         result.query_type.value,
     )
 
@@ -274,11 +328,12 @@ async def chat(
             "source": result.query_type.value,
             "intent": result.math_result.formula_key if result.math_result else None,
             "vocab": [{"vi": v.vi, "tay": v.tay, "nung": v.nung} for v in vocab_list] if vocab_list else None,
+            "conversation_id": conversation_id,
         })
         try:
             async for chunk in stream_gemini(
                 prompt=req.message,
-                context=context,
+                context=full_context,
                 grade=req.grade,
                 language=req.language,
                 role=req.mode,
@@ -289,10 +344,24 @@ async def chat(
             log.error("[CHAT_V2] stream_gemini error: %s", e)
             yield _sse({"type": "error", "message": "INTERNAL_ERROR"})
         yield _sse({"type": "done"})
-        if user_id:
-            asyncio.create_task(_save_history(
-                user_id, req.mode, req.message, "".join(full_text),
-                result.query_type.value, "gemini",
+        if user_id and conversation_id:
+            assistant_text = "".join(full_text)
+            auto_title = None
+            if message_count == 0:
+                auto_title = " ".join(req.message.split()[:5])[:30]
+            asyncio.create_task(save_conv_messages(
+                conversation_id, req.message, assistant_text,
+                result.query_type.value, result.query_type.value,
+                auto_title=auto_title, current_count=message_count,
             ))
+            asyncio.create_task(_maybe_compact(conversation_id))
 
     return StreamingResponse(_gemini_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+async def _maybe_compact(conversation_id: str) -> None:
+    try:
+        if await should_compact(conversation_id):
+            asyncio.create_task(compact_conversation(conversation_id))
+    except Exception as exc:
+        log.warning("[CHAT_V2] compact check failed for %s: %s", conversation_id, exc)

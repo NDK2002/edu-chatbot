@@ -34,10 +34,12 @@ export interface ChatMetadata {
   intent?: string | null;
   vocab?: VocabEntry[] | null;
   steps?: string[] | null;
+  conversation_id?: string | null;
 }
 
 export interface ChatRequest {
   message: string;
+  conversation_id?: string | null;
   grade?: number;
   language?: string;
   mode: "student" | "teacher";

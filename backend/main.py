@@ -2,7 +2,7 @@ import logging
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import chat, chat_v2, history, solver, teacher
+from backend.routers import chat, chat_v2, conversations, history, solver, teacher
 from backend.middleware.rate_limit_middleware import RateLimitMiddleware
 from dotenv import load_dotenv
 
@@ -37,7 +37,8 @@ app.include_router(chat.router,    prefix="/chat",    tags=["chat"])
 app.include_router(chat_v2.router, prefix="/v2/chat", tags=["chat_v2"])
 app.include_router(solver.router,  prefix="/solver",  tags=["solver"])
 app.include_router(teacher.router, prefix="/teacher", tags=["teacher"])
-app.include_router(history.router, prefix="/history", tags=["history"])
+app.include_router(history.router,        prefix="/history",       tags=["history"])
+app.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
 
 @app.get("/health")
 def health():

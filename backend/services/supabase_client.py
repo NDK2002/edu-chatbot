@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
 
 _client = None
 
@@ -36,11 +37,19 @@ def get_supabase():
     if _client is not None:
         return _client
     if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
-        log.warning("[SUPABASE] SUPABASE_URL / SUPABASE_SECRET_KEY chưa set — DB features tắt")
+        log.warning(
+            "[SUPABASE] env thiếu — URL=%s KEY=%s",
+            bool(SUPABASE_URL), bool(SUPABASE_SECRET_KEY),
+        )
         return None
-    from supabase import create_client
-    _client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
-    return _client
+    try:
+        from supabase import create_client
+        _client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
+        log.info("[SUPABASE] client khởi tạo thành công")
+        return _client
+    except Exception as exc:
+        log.error("[SUPABASE] create_client thất bại: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +69,12 @@ def _fetch_jwks() -> dict:
         return _jwks_cache
     if not SUPABASE_URL:
         raise RuntimeError("SUPABASE_URL chưa set")
-    resp = httpx.get(f"{SUPABASE_URL}/auth/v1/jwks", timeout=10.0)
+    api_key = SUPABASE_PUBLISHABLE_KEY or SUPABASE_SECRET_KEY
+    resp = httpx.get(
+        f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json",
+        headers={"apikey": api_key} if api_key else {},
+        timeout=10.0,
+    )
     resp.raise_for_status()
     _jwks_cache = resp.json()
     _jwks_fetched_at = now
@@ -169,3 +183,257 @@ async def save_messages(
         query_type,
         source,
     )
+
+
+# ---------------------------------------------------------------------------
+# Conversation helpers (new conversation management system)
+# ---------------------------------------------------------------------------
+
+def _list_conversations_sync(user_id: str) -> list[dict]:
+    sb = get_supabase()
+    if sb is None:
+        return []
+    resp = (
+        sb.table("conversations")
+        .select("id, title, mode, is_compacted, message_count, last_message_at, created_at")
+        .eq("user_id", user_id)
+        .order("last_message_at", desc=True)
+        .execute()
+    )
+    return resp.data or []
+
+
+async def list_conversations(user_id: str) -> list[dict]:
+    return await asyncio.to_thread(_list_conversations_sync, user_id)
+
+
+def _create_conversation_sync(user_id: str, mode: str) -> dict:
+    sb = get_supabase()
+    if sb is None:
+        raise RuntimeError("Supabase chưa cấu hình")
+    resp = (
+        sb.table("conversations")
+        .insert({"user_id": user_id, "mode": mode})
+        .execute()
+    )
+    return resp.data[0]
+
+
+async def create_conversation(user_id: str, mode: str) -> dict:
+    return await asyncio.to_thread(_create_conversation_sync, user_id, mode)
+
+
+def _delete_conversation_sync(conv_id: str, user_id: str) -> None:
+    sb = get_supabase()
+    if sb is None:
+        return
+    sb.table("conversations").delete().eq("id", conv_id).eq("user_id", user_id).execute()
+
+
+async def delete_conversation(conv_id: str, user_id: str) -> None:
+    await asyncio.to_thread(_delete_conversation_sync, conv_id, user_id)
+
+
+def _get_conversation_messages_sync(conv_id: str, user_id: str) -> dict | None:
+    sb = get_supabase()
+    if sb is None:
+        return {"compact_summary": None, "messages": []}
+    conv_resp = (
+        sb.table("conversations")
+        .select("id, compact_summary")
+        .eq("id", conv_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not conv_resp.data:
+        return None
+    conv = conv_resp.data[0]
+    msgs_resp = (
+        sb.table("messages")
+        .select("id, role, content, query_type, source, is_compacted, created_at")
+        .eq("conversation_id", conv_id)
+        .eq("is_compacted", False)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return {
+        "compact_summary": conv.get("compact_summary"),
+        "messages": msgs_resp.data or [],
+    }
+
+
+async def get_conversation_messages(conv_id: str, user_id: str) -> dict | None:
+    return await asyncio.to_thread(_get_conversation_messages_sync, conv_id, user_id)
+
+
+def _update_conversation_title_sync(conv_id: str, user_id: str, title: str) -> dict:
+    sb = get_supabase()
+    if sb is None:
+        raise RuntimeError("Supabase chưa cấu hình")
+    resp = (
+        sb.table("conversations")
+        .update({"title": title})
+        .eq("id", conv_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else {}
+
+
+async def update_conversation_title(conv_id: str, user_id: str, title: str) -> dict:
+    return await asyncio.to_thread(_update_conversation_title_sync, conv_id, user_id, title)
+
+
+def _get_recent_history_sync(conv_id: str, limit: int = 20) -> dict:
+    """Get compact_summary + recent uncompacted messages for Gemini context."""
+    sb = get_supabase()
+    if sb is None:
+        return {"compact_summary": None, "messages": [], "message_count": 0}
+    conv_resp = (
+        sb.table("conversations")
+        .select("compact_summary, message_count")
+        .eq("id", conv_id)
+        .execute()
+    )
+    if not conv_resp.data:
+        return {"compact_summary": None, "messages": [], "message_count": 0}
+    conv = conv_resp.data[0]
+    msgs_resp = (
+        sb.table("messages")
+        .select("role, content")
+        .eq("conversation_id", conv_id)
+        .eq("is_compacted", False)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    messages = list(reversed(msgs_resp.data or []))
+    return {
+        "compact_summary": conv.get("compact_summary"),
+        "messages": messages,
+        "message_count": conv.get("message_count", 0),
+    }
+
+
+async def get_recent_history(conv_id: str, limit: int = 20) -> dict:
+    return await asyncio.to_thread(_get_recent_history_sync, conv_id, limit)
+
+
+def _save_conv_messages_sync(
+    conv_id: str,
+    user_content: str,
+    assistant_content: str,
+    query_type: str,
+    source: str,
+    auto_title: str | None,
+    new_count: int,
+) -> None:
+    sb = get_supabase()
+    if sb is None:
+        return
+    sb.table("messages").insert([
+        {
+            "conversation_id": conv_id,
+            "role": "user",
+            "content": user_content,
+            "query_type": query_type,
+            "source": source,
+        },
+        {
+            "conversation_id": conv_id,
+            "role": "assistant",
+            "content": assistant_content,
+            "query_type": query_type,
+            "source": source,
+        },
+    ]).execute()
+    update_data: dict = {
+        "message_count": new_count,
+        "last_message_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if auto_title:
+        update_data["title"] = auto_title
+    sb.table("conversations").update(update_data).eq("id", conv_id).execute()
+
+
+async def save_conv_messages(
+    conv_id: str,
+    user_content: str,
+    assistant_content: str,
+    query_type: str,
+    source: str,
+    auto_title: str | None = None,
+    current_count: int = 0,
+) -> None:
+    await asyncio.to_thread(
+        _save_conv_messages_sync,
+        conv_id,
+        user_content,
+        assistant_content,
+        query_type,
+        source,
+        auto_title,
+        current_count + 2,
+    )
+
+
+def _count_uncompacted_sync(conv_id: str) -> int:
+    sb = get_supabase()
+    if sb is None:
+        return 0
+    resp = (
+        sb.table("messages")
+        .select("id", count="exact")
+        .eq("conversation_id", conv_id)
+        .eq("is_compacted", False)
+        .execute()
+    )
+    return resp.count or 0
+
+
+async def count_uncompacted(conv_id: str) -> int:
+    return await asyncio.to_thread(_count_uncompacted_sync, conv_id)
+
+
+def _get_all_uncompacted_sync(conv_id: str) -> list[dict]:
+    sb = get_supabase()
+    if sb is None:
+        return []
+    resp = (
+        sb.table("messages")
+        .select("id, role, content, created_at")
+        .eq("conversation_id", conv_id)
+        .eq("is_compacted", False)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return resp.data or []
+
+
+async def get_all_uncompacted(conv_id: str) -> list[dict]:
+    return await asyncio.to_thread(_get_all_uncompacted_sync, conv_id)
+
+
+def _mark_messages_compacted_sync(message_ids: list[str]) -> None:
+    sb = get_supabase()
+    if sb is None or not message_ids:
+        return
+    sb.table("messages").update({"is_compacted": True}).in_("id", message_ids).execute()
+
+
+async def mark_messages_compacted(message_ids: list[str]) -> None:
+    await asyncio.to_thread(_mark_messages_compacted_sync, message_ids)
+
+
+def _set_compact_summary_sync(conv_id: str, summary: str) -> None:
+    sb = get_supabase()
+    if sb is None:
+        return
+    sb.table("conversations").update({
+        "compact_summary": summary,
+        "is_compacted": True,
+    }).eq("id", conv_id).execute()
+
+
+async def set_compact_summary(conv_id: str, summary: str) -> None:
+    await asyncio.to_thread(_set_compact_summary_sync, conv_id, summary)
