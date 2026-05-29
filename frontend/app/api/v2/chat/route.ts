@@ -8,15 +8,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     req.headers.get("x-real-ip") ??
     "unknown";
 
+  const forwardHeaders: Record<string, string> = {
+    "content-type": req.headers.get("content-type") ?? "application/json",
+    cookie: req.headers.get("cookie") ?? "",
+    "x-forwarded-for": clientIp,
+  };
+  const auth = req.headers.get("authorization");
+  if (auth) forwardHeaders["authorization"] = auth;
+
   let fastapiRes: Response;
   try {
     fastapiRes = await fetch(`${BACKEND_URL}/v2/chat/`, {
       method: "POST",
-      headers: {
-        "content-type": req.headers.get("content-type") ?? "application/json",
-        cookie: req.headers.get("cookie") ?? "",
-        "x-forwarded-for": clientIp,
-      },
+      headers: forwardHeaders,
       body: await req.text(),
     });
   } catch {
