@@ -92,6 +92,7 @@ async def save_vocab(payload: VocabIn, user_id: str = Depends(get_current_user))
                 "vi": payload.vi.strip(),
                 "tay_variants": payload.tay_variants or [],
                 "nung_variants": payload.nung_variants or [],
+                "is_deleted": 0,
             },
             on_conflict="user_id, vi",
         )
@@ -108,20 +109,38 @@ async def list_vocab(user_id: str = Depends(get_current_user)):
         lambda: sb.table("saved_vocab")
         .select("id, vi, tay_variants, nung_variants, saved_at")
         .eq("user_id", user_id)
+        .eq("is_deleted", 0)
         .order("saved_at", desc=True)
         .execute()
     )
     return resp.data
 
 
-@router.delete("/vocab/{vocab_id}", status_code=204)
-async def delete_vocab(vocab_id: str, user_id: str = Depends(get_current_user)):
-    """Xóa một từ đã lưu."""
+class VocabDelete(BaseModel):
+    vi: str
+
+
+@router.delete("/vocab", status_code=204)
+async def delete_vocab(payload: VocabDelete, user_id: str = Depends(get_current_user)):
+    """Xóa mềm một từ đã lưu (theo vi text)."""
     sb = _require_supabase()
     await asyncio.to_thread(
         lambda: sb.table("saved_vocab")
-        .delete()
-        .eq("id", vocab_id)
+        .update({"is_deleted": 1})
+        .eq("user_id", user_id)
+        .eq("vi", payload.vi.strip())
+        .execute()
+    )
+    return None
+
+
+@router.delete("/vocab/all", status_code=204)
+async def delete_all_vocab(user_id: str = Depends(get_current_user)):
+    """Xóa mềm tất cả từ đã lưu."""
+    sb = _require_supabase()
+    await asyncio.to_thread(
+        lambda: sb.table("saved_vocab")
+        .update({"is_deleted": 1})
         .eq("user_id", user_id)
         .execute()
     )

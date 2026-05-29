@@ -17,6 +17,7 @@ export interface ConversationMessage {
   query_type?: string;
   source?: string;
   steps?: string[];
+  vocab?: { vi: string; tay?: string; nung?: string }[];
   is_compacted: boolean;
   created_at: string;
 }

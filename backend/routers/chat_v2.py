@@ -325,13 +325,15 @@ async def chat(
         result.query_type.value,
     )
 
+    vocab_data = [{"vi": v.vi, "tay": v.tay, "nung": v.nung} for v in vocab_list] if vocab_list else None
+
     async def _gemini_stream():
         full_text: list[str] = []
         yield _sse({
             "type": "metadata",
             "source": result.query_type.value,
             "intent": result.math_result.formula_key if result.math_result else None,
-            "vocab": [{"vi": v.vi, "tay": v.tay, "nung": v.nung} for v in vocab_list] if vocab_list else None,
+            "vocab": vocab_data,
             "conversation_id": conversation_id,
         })
         try:
@@ -347,18 +349,22 @@ async def chat(
         except Exception as e:
             log.error("[CHAT_V2] stream_gemini error: %s", e)
             yield _sse({"type": "error", "message": "INTERNAL_ERROR"})
-        yield _sse({"type": "done"})
         if user_id and conversation_id:
             assistant_text = "".join(full_text)
             auto_title = None
             if message_count == 0:
                 auto_title = " ".join(req.message.split()[:5])[:30]
-            asyncio.create_task(save_conv_messages(
-                conversation_id, req.message, assistant_text,
-                result.query_type.value, result.query_type.value,
-                auto_title=auto_title, current_count=message_count,
-            ))
+            try:
+                await save_conv_messages(
+                    conversation_id, req.message, assistant_text,
+                    result.query_type.value, result.query_type.value,
+                    auto_title=auto_title, current_count=message_count,
+                    vocab=vocab_data,
+                )
+            except Exception as exc:
+                log.warning("[CHAT_V2] gemini save failed: %s", exc)
             asyncio.create_task(_maybe_compact(conversation_id))
+        yield _sse({"type": "done"})
 
     return StreamingResponse(_gemini_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 

@@ -94,6 +94,7 @@ export default function StudentPage() {
           content: m.content,
           source: m.source ?? undefined,
           steps: m.steps ?? undefined,
+          vocab: m.vocab ?? undefined,
         }));
         nextIdRef.current = converted.length;
         setMessages(converted);
