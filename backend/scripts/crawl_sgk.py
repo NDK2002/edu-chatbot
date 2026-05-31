@@ -62,7 +62,12 @@ SGK_CATALOG = [
     ("toan", 3, "ket-noi-tri-thuc", "/sgk-toan-3-ket-noi-tri-thuc-c813.html"),
     ("toan", 4, "ket-noi-tri-thuc", "/sgk-toan-4-ket-noi-tri-thuc-c1398.html"),
     ("toan", 5, "ket-noi-tri-thuc", "/sgk-toan-5-ket-noi-tri-thuc-c1728.html"),
-    ("toan", 6, "ket-noi-tri-thuc", "/toan-lop-6-ket-noi-tri-thuc-voi-cuoc-song-c643.html"),
+    (
+        "toan",
+        6,
+        "ket-noi-tri-thuc",
+        "/toan-lop-6-ket-noi-tri-thuc-voi-cuoc-song-c643.html",
+    ),
     ("toan", 7, "ket-noi-tri-thuc", "/sgk-toan-7-ket-noi-tri-thuc-c807.html"),
     ("toan", 8, "ket-noi-tri-thuc", "/sgk-toan-8-ket-noi-tri-thuc-c1390.html"),
     ("toan", 9, "ket-noi-tri-thuc", "/sgk-toan-9-ket-noi-tri-thuc-c1748.html"),
@@ -162,7 +167,7 @@ def extract_content(soup: BeautifulSoup) -> str:
     lines = text.split("\n")
     lines = [
         l
-        for l in lines
+        for l in lines  # noqa: E741
         if not any(
             k in l
             for k in [
@@ -182,7 +187,7 @@ def extract_content(soup: BeautifulSoup) -> str:
             ]
         )
     ]
-    lines = [l for l in lines if len(l.strip()) >= 10]
+    lines = [l for l in lines if len(l.strip()) >= 10]  # noqa: E741
 
     text = "\n".join(lines)
 

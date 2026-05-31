@@ -12,6 +12,7 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION_MATH = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
 COLLECTION_VI_TAY = os.getenv("QDRANT_COLLECTION_VI_TAY", "edu_vi_tay_nung_dictionary")
 COLLECTION_TAY_VI = os.getenv("QDRANT_COLLECTION_TAY_VI", "edu_tay_vi_dictionary")
+COLLECTION_DICT = os.getenv("QDRANT_COLLECTION_DICT", "edu_dictionary")
 VECTOR_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.45))
 RERANK_THRESHOLD = float(os.getenv("RERANK_SCORE_THRESHOLD", 0.80))
 
@@ -89,17 +90,18 @@ def _build_query_filter(grade: int) -> Filter:
         must.append(FieldCondition(key="grade", match=MatchValue(value=grade)))
     return Filter(must=must)
 
+
 def classify_retrieval_score(vector_score: float, rerank_score: float | None) -> str:
     if rerank_score is not None:
         if rerank_score >= RERANK_THRESHOLD:
             return "strong_context"
-        
+
         if rerank_score >= RERANK_THRESHOLD - 0.30:
             return "medium_context"
-        
+
         if rerank_score >= RERANK_THRESHOLD - 0.60:
             return "weak_context"
-        
+
         return "no_relevant_context"
 
     if vector_score >= VECTOR_THRESHOLD:
@@ -113,25 +115,26 @@ def classify_retrieval_score(vector_score: float, rerank_score: float | None) ->
 
     return "no_relevant_context"
 
+
 def _select_context_limit(retrieval_status: str) -> int:
     if retrieval_status == "strong_context":
         return 3
 
     if retrieval_status == "medium_context":
         return 2
-    
+
     if retrieval_status == "weak_context":
         return 1
-    
+
     return 0
+
 
 def _hit_to_math_context(hit, rerank_score: float | None) -> dict:
     payload = hit.payload or {}
 
     content = _metadata_value(
-        payload,
-        "content",
-        _metadata_value(payload, "text", "")).strip()
+        payload, "content", _metadata_value(payload, "text", "")
+    ).strip()
 
     return {
         "type": "math_context",
@@ -155,6 +158,7 @@ def _hit_to_math_context(hit, rerank_score: float | None) -> dict:
         "point_id": str(hit.id),
     }
 
+
 def _hit_to_dictionary_context(hit, rerank_score: float | None = None) -> dict:
     payload = hit.payload or {}
 
@@ -169,7 +173,7 @@ def _hit_to_dictionary_context(hit, rerank_score: float | None = None) -> dict:
             f"Từ tiếng Tày: {', '.join(tay_variants) if isinstance(tay_variants, list) else tay_variants}\n"
             f"Từ tiếng Nùng: {', '.join(nung_variants) if isinstance(nung_variants, list) else nung_variants}"
         )
-    
+
     return {
         "type": "dictionary_context",
         "content": content,
@@ -187,6 +191,7 @@ def _hit_to_dictionary_context(hit, rerank_score: float | None = None) -> dict:
         "point_id": str(hit.id),
     }
 
+
 def _hit_to_context(hit, rerank_score: float, context_type: str) -> dict:
     if context_type == "math":
         return _hit_to_math_context(hit, rerank_score)
@@ -196,16 +201,17 @@ def _hit_to_context(hit, rerank_score: float, context_type: str) -> dict:
 
     raise ValueError(f"Unsupported context_type: {context_type}")
 
+
 def _normalize_text_for_dedupe(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"\s+", " ", text)
     return text
 
+
 def _dedupe_contexts(contexts: list[dict]) -> list[dict]:
     sorted_contexts = sorted(
-        contexts, 
-        key=lambda c: (c.get("content") or "").strip(),
-        reverse=True)
+        contexts, key=lambda c: (c.get("content") or "").strip(), reverse=True
+    )
 
     result: list[dict] = []
     seen_contents: list[str] = []
@@ -218,8 +224,7 @@ def _dedupe_contexts(contexts: list[dict]) -> list[dict]:
             continue
 
         is_duplicate = any(
-            normalized == seen or normalized in seen
-            for seen in seen_contents
+            normalized == seen or normalized in seen for seen in seen_contents
         )
 
         if is_duplicate:
@@ -232,8 +237,9 @@ def _dedupe_contexts(contexts: list[dict]) -> list[dict]:
         key=lambda ctx: float(ctx.get("rerank_score") or 0.0),
         reverse=True,
     )
-    
+
     return result
+
 
 def _query_qdrant(
     client: QdrantClient,
@@ -299,9 +305,11 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
             "top_rerank_scores": None,
         }
 
-    log.info("[SEARCH] Qdrant hits=%d  top3_vector_scores=%s",
-                len(hits),
-                [f"{h.score:.4f}" for h in hits[:3]])
+    log.info(
+        "[SEARCH] Qdrant hits=%d  top3_vector_scores=%s",
+        len(hits),
+        [f"{h.score:.4f}" for h in hits[:3]],
+    )
 
     # Stage 2: prepare documents for reranking
     valid_hits = [
@@ -345,14 +353,13 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
         [
             (f"{sc:.4f}", _metadata_value(h.payload, "title", "")[:40])
             for h, sc in ranked[:3]
-        ], 
+        ],
     )
 
     best_hit, best_rerank_score = ranked[0]
     best_vector_score = float(best_hit.score or 0.0)
     retrieval_status = classify_retrieval_score(
-        vector_score=best_vector_score, 
-        rerank_score=best_rerank_score
+        vector_score=best_vector_score, rerank_score=best_rerank_score
     )
 
     best_payload = best_hit.payload or {}
@@ -366,7 +373,7 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
         best_title,
         _metadata_value(best_payload, "grade"),
         _metadata_value(best_payload, "source_file"),
-        best_hit.id
+        best_hit.id,
     )
 
     context_limit = _select_context_limit(retrieval_status)
