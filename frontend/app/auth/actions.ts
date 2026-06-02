@@ -28,7 +28,9 @@ export async function login(_prevState: unknown, formData: FormData) {
   });
 
   if (error) return { error: error.message };
-  redirect("/student");
+  const { data: { user } } = await supabase.auth.getUser();
+  const role = user?.user_metadata?.role ?? "student";
+  redirect(role === "teacher" ? "/teacher" : "/student");
 }
 
 export async function register(_prevState: unknown, formData: FormData) {
@@ -55,7 +57,7 @@ export async function register(_prevState: unknown, formData: FormData) {
   // session = null nghĩa là Supabase đang chờ xác nhận email (confirm email chưa tắt)
   if (!data.session) return { error: "EMAIL_CONFIRM_STILL_ON" };
 
-  redirect("/student");
+  redirect(role === "teacher" ? "/teacher" : "/student");
 }
 
 export async function logout() {
