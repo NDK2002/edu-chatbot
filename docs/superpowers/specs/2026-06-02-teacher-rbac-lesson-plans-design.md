@@ -104,7 +104,7 @@ Gemini returns structured JSON. Frontend renders three distinct colored cards:
    - Collection: edu_math_canh_dieu
    - Filter: subject + book_set=Cánh Diều
    - Query: topic text → top 5 chunks
-3a. Chunks found (score ≥ 0.82):
+3a. Chunks found (score ≥ VECTOR_SCORE_THRESHOLD from .env):
     → Inject SGK context into Gemini prompt
 3b. No chunks (subject not in Qdrant yet):
     → Gemini fallback (no RAG context)
