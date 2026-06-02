@@ -6,5 +6,6 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   const { data } = await supabase.auth.getUser();
   const meta = data.user?.user_metadata;
   const displayName: string | null = meta?.display_name ?? meta?.username ?? null;
-  return <ProtectedShell displayName={displayName}>{children}</ProtectedShell>;
+  const role: "student" | "teacher" = (meta?.role === "teacher") ? "teacher" : "student";
+  return <ProtectedShell displayName={displayName} role={role}>{children}</ProtectedShell>;
 }
