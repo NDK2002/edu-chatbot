@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { generateLesson } from "@/lib/api";
+import { generateLesson, LessonPlanResponse } from "@/lib/api";
 
 const SUBJECTS = ["Toán", "Tiếng Việt", "Tự nhiên và Xã hội", "Khoa học"];
 const GRADES = [1, 2, 3, 4, 5];
@@ -11,7 +11,7 @@ export default function TeacherPage() {
   const [topic, setTopic] = useState("");
   const [grade, setGrade] = useState<number>(3);
   const [subject, setSubject] = useState("Toán");
-  const [result, setResult] = useState("");
+  const [result, setResult] = useState<LessonPlanResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -21,11 +21,11 @@ export default function TeacherPage() {
 
     setIsLoading(true);
     setError("");
-    setResult("");
+    setResult(null);
 
     try {
       const res = await generateLesson(topic.trim(), grade, subject);
-      setResult(res.lesson_plan);
+      setResult(res);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -129,14 +129,39 @@ export default function TeacherPage() {
                 Giáo án được tạo
               </h2>
               <button
-                onClick={() => navigator.clipboard.writeText(result)}
+                onClick={() => navigator.clipboard.writeText(JSON.stringify(result, null, 2))}
                 className="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors font-medium border border-emerald-200"
               >
                 📋 Sao chép
               </button>
             </div>
-            <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed bg-gray-50 rounded-xl p-4 border border-gray-100">
-              {result}
+            <div className="prose prose-sm max-w-none text-gray-700 text-sm leading-relaxed bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3">
+              {result.objectives.length > 0 && (
+                <div>
+                  <p className="font-semibold text-gray-600 mb-1">Mục tiêu:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {result.objectives.map((obj, i) => <li key={i}>{obj}</li>)}
+                  </ul>
+                </div>
+              )}
+              {result.activities.length > 0 && (
+                <div>
+                  <p className="font-semibold text-gray-600 mb-1">Hoạt động:</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    {result.activities.map((act) => (
+                      <li key={act.step}><span className="font-medium">[{act.duration}]</span> {act.description}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {result.exercises.length > 0 && (
+                <div>
+                  <p className="font-semibold text-gray-600 mb-1">Bài tập:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {result.exercises.map((ex, i) => <li key={i}>{ex}</li>)}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         )}
