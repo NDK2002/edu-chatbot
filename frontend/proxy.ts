@@ -12,15 +12,21 @@ export default async function proxy(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthPage = AUTH_PREFIXES.some((p) => pathname.startsWith(p));
 
+  const role = (user?.user_metadata?.role as string) ?? "student";
+
   let response: NextResponse;
 
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     response = NextResponse.redirect(url);
-  } else if (isAuthPage && user) {
+  } else if (user && role === "student" && pathname.startsWith("/teacher")) {
     const url = request.nextUrl.clone();
     url.pathname = "/student";
+    response = NextResponse.redirect(url);
+  } else if (isAuthPage && user) {
+    const url = request.nextUrl.clone();
+    url.pathname = role === "teacher" ? "/teacher" : "/student";
     response = NextResponse.redirect(url);
   } else {
     response = supabaseResponse;
