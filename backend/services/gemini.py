@@ -235,3 +235,30 @@ async def stream_gemini(
                 continue
             raise
     raise HTTPException(status_code=503, detail="AI_UNAVAILABLE")
+
+
+async def ask_gemini_json(prompt: str, role: str = "teacher") -> str:
+    """
+    Gọi Gemini với response_mime_type='application/json'.
+    Trả raw JSON string. Không cache — lesson plan mỗi lần khác nhau.
+    """
+    client = _get_client()
+    for model in FALLBACK_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=get_system_prompt(role),
+                    response_mime_type="application/json",
+                    max_output_tokens=2048,
+                    temperature=0.3,
+                ),
+            )
+            return response.text
+        except ServerError as e:
+            if e.code == 503:
+                log.warning("[GEMINI] Model %s unavailable (503), trying next...", model)
+                continue
+            raise
+    raise HTTPException(status_code=503, detail="AI_UNAVAILABLE")
