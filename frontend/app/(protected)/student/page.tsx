@@ -28,12 +28,12 @@ const DEFAULT_MESSAGES: Message[] = [
   },
 ];
 
-const SUGGESTIONS = [
-  "Chu vi hình vuông là gì?",
-  "Tính 24 × 6 = ?",
-  "Phân số là gì?",
-  "Diện tích hình chữ nhật tính thế nào?",
-];
+// const SUGGESTIONS = [
+//   "Chu vi hình vuông là gì?",
+//   "Phân số là gì?",
+//   "Bảng nhân 9",
+//   "Ăn cơm trong tiếng Tày là gì?"
+// ];
 
 export default function StudentPage() {
   const {
@@ -284,7 +284,7 @@ export default function StudentPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Suggestions */}
+      {/* Suggestions
       {showSuggestions && (
         <div className="px-4 pb-2 flex flex-wrap gap-2 justify-center shrink-0">
           {SUGGESTIONS.map((s) => (
@@ -297,7 +297,7 @@ export default function StudentPage() {
             </button>
           ))}
         </div>
-      )}
+      )} */}
 
       {/* Rate-limit cooldown banner */}
       {cooldownSeconds > 0 && (
