@@ -171,7 +171,14 @@ export async function generateLesson(
     headers,
     body: JSON.stringify({ topic, grade, subject }),
   });
-  if (!res.ok) throw new Error(`Lỗi máy chủ: ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 429) {
+      const data = await res.json();
+      throw new RateLimitError(data.message, data.reset_in_seconds, data.reason);
+    }
+    if (res.status === 503) throw new Error("AI_UNAVAILABLE");
+    throw new Error(`Lỗi máy chủ: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -183,7 +190,7 @@ export async function fetchLessonHistory(
   if (!token) return [];
 
   const params = new URLSearchParams();
-  if (grade) params.set("grade", grade.toString());
+  if (grade != null) params.set("grade", grade.toString());
   if (subject) params.set("subject", subject);
 
   const res = await fetch(`${API_URL}/teacher/lessons?${params}`, {
