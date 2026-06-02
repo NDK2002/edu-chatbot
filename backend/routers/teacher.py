@@ -99,14 +99,17 @@ async def generate_lesson(
     authorization: Optional[str] = Header(None),
 ):
     # 1. RAG search (grade=0 → no grade filter, search all lớp 1–5)
-    rag_result = await search(req.topic, grade=0, top_k=40)
     rag_context = ""
     rag_used = False
-    if rag_result and rag_result.get("retrieval_status") in ("strong_context", "medium_context"):
-        contexts = rag_result.get("context", [])
-        if contexts:
-            rag_context = "\n\n".join(c["content"] for c in contexts[:3])
-            rag_used = True
+    try:
+        rag_result = await search(req.topic, grade=0, top_k=40)
+        if rag_result and rag_result.get("retrieval_status") in ("strong_context", "medium_context"):
+            contexts = rag_result.get("context", [])
+            if contexts:
+                rag_context = "\n\n".join(c["content"] for c in contexts[:3])
+                rag_used = True
+    except Exception as e:
+        log.warning("[TEACHER] RAG search failed, proceeding without context: %s", e)
 
     # 2. Build prompt
     json_schema = (
