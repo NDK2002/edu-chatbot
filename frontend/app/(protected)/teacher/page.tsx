@@ -26,8 +26,12 @@ export default function TeacherPage() {
   const [showHistory, setShowHistory] = useState(false);
 
   const loadHistory = useCallback(async () => {
-    const items = await fetchLessonHistory(filterGrade, filterSubject);
-    setHistory(items);
+    try {
+      const items = await fetchLessonHistory(filterGrade, filterSubject);
+      setHistory(items);
+    } catch {
+      // network error — keep stale history
+    }
   }, [filterGrade, filterSubject]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
@@ -41,16 +45,17 @@ export default function TeacherPage() {
     try {
       const res = await generateLesson(topic.trim(), grade, subject);
       setResult(res);
-      await loadHistory();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setIsLoading(false);
     }
+    loadHistory().catch(() => {});
   }
 
   function loadFromHistory(item: LessonHistoryItem) {
     setResult(item);
+    setError("");
     setTopic(item.topic);
     setGrade(item.grade);
     setSubject(item.subject);
