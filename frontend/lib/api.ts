@@ -45,10 +45,6 @@ export interface ChatRequest {
   mode: "student" | "teacher";
 }
 
-export interface LessonResponse {
-  lesson_plan: string;
-}
-
 export async function sendChatMessage(
   message: string,
   mode: "student" | "teacher" = "student"
@@ -139,16 +135,61 @@ export async function streamChat(
   }
 }
 
+export interface LessonActivity {
+  step: number;
+  duration: string;
+  description: string;
+}
+
+export interface LessonPlanResponse {
+  id: string | null;
+  topic: string;
+  grade: number;
+  subject: string;
+  objectives: string[];
+  activities: LessonActivity[];
+  exercises: string[];
+  rag_used: boolean;
+}
+
+export interface LessonHistoryItem extends LessonPlanResponse {
+  id: string;
+  created_at: string;
+}
+
 export async function generateLesson(
   topic: string,
   grade: number,
   subject: string
-): Promise<LessonResponse> {
+): Promise<LessonPlanResponse> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch(`${API_URL}/teacher/lesson`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ topic, grade, subject }),
   });
   if (!res.ok) throw new Error(`Lỗi máy chủ: ${res.status}`);
   return res.json();
+}
+
+export async function fetchLessonHistory(
+  grade?: number | null,
+  subject?: string | null
+): Promise<LessonHistoryItem[]> {
+  const token = await getAccessToken();
+  if (!token) return [];
+
+  const params = new URLSearchParams();
+  if (grade) params.set("grade", grade.toString());
+  if (subject) params.set("subject", subject);
+
+  const res = await fetch(`${API_URL}/teacher/lessons?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.lessons ?? [];
 }
