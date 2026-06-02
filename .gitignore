@@ -33,3 +33,5 @@ PROJECT_CONTEXT.md
 .understand-anything
 .claude
 .codegraph
+data/.embed_cache/corpus_ateamvn.npy
+data/.embed_cache/corpus_openai.npy
