@@ -224,7 +224,7 @@ export default function StudentPage() {
     handleSend(input);
   }
 
-  const showSuggestions = messages.length <= 1 && !isLoadingMessages;
+  // const showSuggestions = messages.length <= 1 && !isLoadingMessages;
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-b from-sky-50 to-indigo-50">

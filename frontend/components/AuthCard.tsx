@@ -25,6 +25,8 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [anim, setAnim] = useState<AnimPhase>("idle");
   const [role, setRole] = useState<Role>("student");
+  const [pwError, setPwError] = useState("");
+  const [pwValid, setPwValid] = useState(false);
 
   const [loginState, loginAction, isLoginPending] = useActionState(
     login,
@@ -35,8 +37,21 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
     undefined
   );
 
+  const checkPassword = (val: string) => {
+    if (!val) { setPwError(""); setPwValid(false); return; }
+    const ok =
+      /[a-z]/.test(val) &&
+      /[A-Z]/.test(val) &&
+      /\d/.test(val) &&
+      /[^A-Za-z\d]/.test(val);
+    setPwError(ok ? "" : "Cần có chữ hoa, chữ thường, số và ký tự đặc biệt.");
+    setPwValid(ok);
+  };
+
   const switchMode = (next: Mode) => {
     if (next === mode || anim !== "idle") return;
+    setPwError("");
+    setPwValid(false);
     const forward = next === "register";
     setAnim(forward ? "exit-left" : "exit-right");
     setTimeout(() => {
@@ -142,9 +157,14 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
                   required
                   minLength={6}
                   autoComplete="new-password"
-                  placeholder="Ít nhất 6 ký tự"
+                  placeholder="Ít nhất 6 ký tự, vd: Abc@123"
                   className={inputCls}
+                  onChange={(e) => checkPassword(e.target.value)}
+                  onBlur={(e) => checkPassword(e.target.value)}
                 />
+                {pwError && (
+                  <p className="text-xs text-red-500 mt-1">{pwError}</p>
+                )}
               </Field>
 
               {/* Role picker */}
@@ -176,7 +196,7 @@ export default function AuthCard({ initialMode }: { initialMode: Mode }) {
                 <ErrorBox msg={translateRegisterError(registerState.error)} />
               )}
 
-              <SubmitButton pending={isPending} label="Tạo tài khoản" pendingLabel="Đang tạo tài khoản..." />
+              <SubmitButton pending={isPending} disabled={!pwValid} label="Tạo tài khoản" pendingLabel="Đang tạo tài khoản..." />
             </form>
           )}
         </div>
@@ -246,17 +266,19 @@ function ErrorBox({ msg }: { msg: string }) {
 
 function SubmitButton({
   pending,
+  disabled = false,
   label,
   pendingLabel,
 }: {
   pending: boolean;
+  disabled?: boolean;
   label: string;
   pendingLabel: string;
 }) {
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className="w-full py-2.5 rounded-xl bg-sky-500 text-white text-sm font-medium hover:bg-sky-600 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {pending ? pendingLabel : label}
