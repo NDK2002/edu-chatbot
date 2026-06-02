@@ -2,9 +2,12 @@
 """
 ingest_dict_combined.py
 =======================
-Embed và nạp dictionary_combined.jsonl vào Qdrant collection edu_dictionary.
+Embed và nạp dictionary_v2.jsonl vào Qdrant collection edu_dictionary.
 
-Thay thế ingest_dict.py (dùng cho 2 collection cũ riêng biệt).
+dictionary_v2.jsonl gồm 3 loại chunks:
+  - word_chunk (vi_to_tay_nung) : community data, 1 từ = 1 chunk
+  - topic_chunk (vi_to_tay_nung): community data, 1 chủ đề = 1 chunk
+  - word_chunk (tay_to_vi)      : Lương Bèn, 1 từ = 1 chunk
 
 Cách dùng:
     python -m backend.scripts.ingest_dict_combined
@@ -19,7 +22,6 @@ import os
 import time
 from pathlib import Path
 
-import httpx
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -28,73 +30,73 @@ from qdrant_client.models import (
     PointStruct,
     VectorParams,
 )
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-JSONL_PATH = ROOT / "data" / "chunks" / "dictionary_combined.jsonl"
+JSONL_PATH = ROOT / "data" / "chunks" / "dictionary_v2.jsonl"
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION = os.getenv("QDRANT_COLLECTION_DICT", "edu_dictionary")
 
-AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "AITeamVN/Vietnamese_Embedding")
-EMBED_URL = os.getenv("EMBED_URL", "https://ai-model.ndk.id.vn/embeddings")
 
-BATCH_SIZE = 50
+BATCH_SIZE = 64  # local model xử lý được batch lớn hơn
 MAX_RETRIES = 3
 
-_headers = {"Authorization": f"Bearer {AI_MODEL_API_KEY}"}
+_embed_model: SentenceTransformer | None = None
+
+
+def get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        print(f"  🔄 Tải model {EMBED_MODEL} ...")
+        _embed_model = SentenceTransformer(EMBED_MODEL)
+        print(f"  ✅ Model loaded")
+    return _embed_model
 
 # Payload indexes cho collection edu_dictionary
 PAYLOAD_INDEXES: list[tuple[str, PayloadSchemaType]] = [
-    ("direction", PayloadSchemaType.KEYWORD),        # tay_vi | vi_tay_nung
-    ("source", PayloadSchemaType.KEYWORD),           # nguồn dữ liệu
-    ("dialect", PayloadSchemaType.KEYWORD),          # phương ngữ
-    ("quality_tier", PayloadSchemaType.KEYWORD),     # high | medium | low | community
-    ("review_status", PayloadSchemaType.KEYWORD),    # academic_source_trusted | community_source_need_review
-    ("content_type", PayloadSchemaType.KEYWORD),     # dictionary_entry
-    ("vi_no_diacritics", PayloadSchemaType.KEYWORD), # tìm kiếm không dấu
+    ("direction", PayloadSchemaType.KEYWORD),           # vi_to_tay_nung | tay_to_vi
+    ("content_type", PayloadSchemaType.KEYWORD),        # word_chunk | topic_chunk
+    ("source", PayloadSchemaType.KEYWORD),              # nguồn dữ liệu
+    ("quality_tier", PayloadSchemaType.KEYWORD),        # high | medium | low | community
+    ("review_status", PayloadSchemaType.KEYWORD),       # academic_source_trusted | community_source_need_review
+    ("vi_no_diacritics", PayloadSchemaType.KEYWORD),    # tìm kiếm không dấu theo vi
+    ("topic_no_diacritics", PayloadSchemaType.KEYWORD), # tìm kiếm không dấu theo topic
+    ("topic", PayloadSchemaType.KEYWORD),               # chủ đề (có dấu)
 ]
 
 
 # ── Embedding ──────────────────────────────────────────────────────────────────
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = httpx.post(
-                EMBED_URL,
-                headers=_headers,
-                json={"model": EMBED_MODEL, "input": texts},
-                timeout=60,
-            )
-            resp.raise_for_status()
-            data = sorted(resp.json()["data"], key=lambda x: x["index"])
-            return [d["embedding"] for d in data]
-        except httpx.HTTPError as e:
-            if attempt == MAX_RETRIES:
-                raise
-            print(f"  ⚠ Embed lỗi (lần {attempt}): {e} — thử lại sau {attempt*2}s")
-            time.sleep(attempt * 2)
-    return []
+    model = get_embed_model()
+    return model.encode(texts, show_progress_bar=False).tolist()
 
 
 def get_vector_dim() -> int:
-    return len(embed_batch(["test"])[0])
+    model = get_embed_model()
+    return model.get_embedding_dimension()
 
 
 # ── Point ID ───────────────────────────────────────────────────────────────────
 
 def make_point_id(record: dict, line_no: int) -> int:
     """
-    ID ổn định dựa trên hash của (direction, tay, vi).
-    Fallback về line number nếu thiếu field.
+    ID ổn định dựa trên hash của (content_type, direction, tay, vi, topic).
+    topic_chunk dùng thêm topic để phân biệt với word_chunk cùng vi.
     """
-    key = f"{record.get('direction','')}|{record.get('tay','').lower()}|{record.get('vi','').lower()}"
+    content_type = record.get("content_type", "word_chunk")
+    direction    = record.get("direction", "")
+    tay          = record.get("tay", "").lower()
+    vi           = record.get("vi", "").lower()
+    topic        = record.get("topic", "").lower()
+    key = f"{content_type}|{direction}|{tay}|{vi}|{topic}"
     h = int(hashlib.md5(key.encode()).hexdigest(), 16)
-    return h % (2**53)  # Qdrant dùng uint64, JS safe integer limit
+    return h % (2**53)
 
 
 # ── Load records ───────────────────────────────────────────────────────────────
@@ -124,12 +126,17 @@ def ingest(dry_run: bool = False, recreate: bool = False) -> None:
     print(f"  ✅ {len(records)} entries")
 
     # Thống kê nhanh
-    directions = {}
+    directions   = {}
+    chunk_types  = {}
     for r in records:
         d = r.get("direction", "?")
-        directions[d] = directions.get(d, 0) + 1
-    for d, c in directions.items():
-        print(f"     {d}: {c}")
+        c = r.get("content_type", "?")
+        directions[d]  = directions.get(d, 0) + 1
+        chunk_types[c] = chunk_types.get(c, 0) + 1
+    for d, n in directions.items():
+        print(f"     {d}: {n}")
+    for c, n in chunk_types.items():
+        print(f"     {c}: {n}")
 
     if dry_run:
         print("\n🔍 Dry-run — không ghi vào Qdrant.")
@@ -163,35 +170,51 @@ def ingest(dry_run: bool = False, recreate: bool = False) -> None:
         )
     print(f"  📑 Đã tạo {len(PAYLOAD_INDEXES)} payload indexes")
 
+    # Checkpoint — lưu tiến độ để resume khi crash
+    checkpoint_path = JSONL_PATH.parent / f".ingest_checkpoint_{COLLECTION}.txt"
+    start_idx = 0
+    if not recreate and checkpoint_path.exists():
+        try:
+            start_idx = int(checkpoint_path.read_text().strip())
+            print(f"  ▶ Resume từ index {start_idx} (checkpoint)")
+        except ValueError:
+            start_idx = 0
+
     # Upsert theo batch
     total = len(records)
-    for i in range(0, total, BATCH_SIZE):
-        batch = records[i : i + BATCH_SIZE]
-        texts = [r["text"] for r in batch]
-        vectors = embed_batch(texts)
-        time.sleep(0.5)
+    try:
+        for i in range(start_idx, total, BATCH_SIZE):
+            batch = records[i : i + BATCH_SIZE]
+            texts = [r["text"] for r in batch]
+            vectors = embed_batch(texts)
 
-        points = [
-            PointStruct(
-                id=make_point_id(r, i + j),
-                vector=v,
-                payload=r,
-            )
-            for j, (r, v) in enumerate(zip(batch, vectors))
-        ]
+            points = [
+                PointStruct(
+                    id=make_point_id(r, i + j),
+                    vector=v,
+                    payload=r,
+                )
+                for j, (r, v) in enumerate(zip(batch, vectors))
+            ]
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                client.upsert(collection_name=COLLECTION, points=points)
-                break
-            except Exception as e:
-                if attempt == MAX_RETRIES:
-                    raise
-                print(f"  ⚠ Upsert lỗi (lần {attempt}): {e} — thử lại sau {attempt*2}s")
-                time.sleep(attempt * 2)
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    client.upsert(collection_name=COLLECTION, points=points)
+                    break
+                except Exception as e:
+                    if attempt == MAX_RETRIES:
+                        raise
+                    print(f"  ⚠ Upsert lỗi (lần {attempt}): {e} — thử lại sau {attempt*3}s")
+                    time.sleep(attempt * 3)
 
-        print(f"  ↑ {min(i + BATCH_SIZE, total)}/{total}")
+            checkpoint_path.write_text(str(i + BATCH_SIZE))
+            print(f"  ↑ {min(i + BATCH_SIZE, total)}/{total}")
 
+    except Exception:
+        print(f"\n⚠ Crash tại index ~{i}. Chạy lại để resume tự động.")
+        raise
+
+    checkpoint_path.unlink(missing_ok=True)
     print(f"\n🎉 Xong: {total} entries → collection '{COLLECTION}'")
 
 
@@ -199,7 +222,7 @@ def ingest(dry_run: bool = False, recreate: bool = False) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Nạp dictionary_combined.jsonl vào Qdrant collection edu_dictionary."
+        description="Nạp dictionary_v2.jsonl vào Qdrant collection edu_dictionary."
     )
     parser.add_argument(
         "--dry-run",

@@ -7,6 +7,7 @@ Hỗ trợ conversation_id để lưu context lịch sử.
 import asyncio
 import json
 import logging
+import re
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
@@ -81,22 +82,11 @@ def _format_dict_context(contexts: list[dict]) -> str:
     parts: list[str] = []
     for ctx in contexts:
         vi = (ctx.get("vi") or "").strip()
-        tay_variants = ctx.get("tay_variants") or []
-        nung_variants = ctx.get("nung_variants") or []
+        tay = (ctx.get("tay") or "").strip()
+        nung = (ctx.get("nung") or "").strip()
         direction = ctx.get("direction") or ""
 
-        tay_str = (
-            ", ".join(tay_variants)
-            if isinstance(tay_variants, list)
-            else str(tay_variants)
-        )
-        nung_str = (
-            ", ".join(nung_variants)
-            if isinstance(nung_variants, list)
-            else str(nung_variants)
-        )
-
-        if direction == "tay_to_vi" and not tay_str:
+        if direction == "tay_vi" and not tay:
             content = (ctx.get("content") or "").strip()
             if content:
                 parts.append(content)
@@ -105,10 +95,10 @@ def _format_dict_context(contexts: list[dict]) -> str:
         line_parts = []
         if vi:
             line_parts.append(f"Việt: {vi}")
-        if tay_str:
-            line_parts.append(f"Tày: {tay_str}")
-        if nung_str:
-            line_parts.append(f"Nùng: {nung_str}")
+        if tay:
+            line_parts.append(f"Tày: {tay}")
+        if nung:
+            line_parts.append(f"Nùng: {nung}")
         if not line_parts:
             content = (ctx.get("content") or "").strip()
             if content:
@@ -131,14 +121,19 @@ def _build_vocab(dict_contexts: list[dict]) -> list[VocabEntry]:
         vi = (ctx.get("vi") or "").strip()
         if not vi or vi in seen:
             continue
-        if (ctx.get("direction") or "") == "tay_to_vi":
-            continue
-        seen.add(vi)
-        tay_variants = ctx.get("tay_variants") or []
-        nung_variants = ctx.get("nung_variants") or []
-        tay_str = ", ".join(tay_variants) if isinstance(tay_variants, list) and tay_variants else None
-        nung_str = ", ".join(nung_variants) if isinstance(nung_variants, list) and nung_variants else None
-        entries.append(VocabEntry(vi=vi, tay=tay_str, nung=nung_str))
+        direction = ctx.get("direction") or ""
+        tay_raw = (ctx.get("tay") or "").strip()
+        if direction == "tay_vi":
+            # Bỏ chỉ số đồng âm "(2)" của tay headword rồi dùng làm bản dịch
+            tay_clean = re.sub(r"\s*\(\d+\)\s*$", "", tay_raw).strip()
+            if not tay_clean:
+                continue
+            seen.add(vi)
+            entries.append(VocabEntry(vi=vi, tay=tay_clean, nung=None))
+        else:
+            seen.add(vi)
+            nung = (ctx.get("nung") or "").strip()
+            entries.append(VocabEntry(vi=vi, tay=tay_raw or None, nung=nung or None))
     return entries
 
 

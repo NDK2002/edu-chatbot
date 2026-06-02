@@ -17,9 +17,9 @@ SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.70))
 
 class ChatRequest(BaseModel):
     message: str
-    grade: int = 0          # 0 = no grade filter (search all grades 1–5)
-    language: str = "vi"    # "vi" | "tay_nung"
-    mode: str               # "student" | "teacher"
+    grade: int = 0  # 0 = no grade filter (search all grades 1–5)
+    language: str = "vi"  # "vi" | "tay_nung"
+    mode: str  # "student" | "teacher"
 
 
 class VocabEntry(BaseModel):
@@ -30,9 +30,9 @@ class VocabEntry(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    source: str            # "rule_engine" | "vector" | "llm" | "safety"
+    source: str  # "rule_engine" | "vector" | "llm" | "safety"
     score: float | None = None
-    intent: str | None = None   # formula_key nếu đi qua Rule Engine
+    intent: str | None = None  # formula_key nếu đi qua Rule Engine
     steps: list[str] | None = None
     vocab: list[VocabEntry] | None = None
     grade: int | None = None
@@ -40,7 +40,9 @@ class ChatResponse(BaseModel):
 
 @router.post("/", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    log.info("[CHAT] message=%r  grade=%d  lang=%s", req.message, req.grade, req.language)
+    log.info(
+        "[CHAT] message=%r  grade=%d  lang=%s", req.message, req.grade, req.language
+    )
 
     # 1. Safety check
     if not is_safe(req.message):
@@ -67,7 +69,10 @@ async def chat(req: ChatRequest):
                 source="rule_engine",
                 intent=intent.rule_fn,
             )
-        log.warning("[CHAT] Rule Engine failed: %s", math_result.error if math_result else "no result")
+        log.warning(
+            "[CHAT] Rule Engine failed: %s",
+            math_result.error if math_result else "no result",
+        )
     else:
         log.info("[CHAT] intent=None → RAG")
 
@@ -84,8 +89,12 @@ async def chat(req: ChatRequest):
 
     # 4. Gemini fallback
     context = result["context"] if result else ""
-    log.info("[CHAT] → llm  has_context=%s  rerank_score=%s context=%r",
-                bool(context), f"{result['top_rerank_score']:.4f}" if result else "N/A", context[:100])
+    log.info(
+        "[CHAT] → llm  has_context=%s  rerank_score=%s context=%r",
+        bool(context),
+        f"{result['top_rerank_score']:.4f}" if result else "N/A",
+        context[:100],
+    )
     try:
         answer = await ask_gemini(
             prompt=req.message,

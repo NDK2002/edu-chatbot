@@ -10,8 +10,6 @@ log = logging.getLogger(__name__)
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION_MATH = os.getenv("QDRANT_COLLECTION_MATH", "edu_math")
-COLLECTION_VI_TAY = os.getenv("QDRANT_COLLECTION_VI_TAY", "edu_vi_tay_nung_dictionary")
-COLLECTION_TAY_VI = os.getenv("QDRANT_COLLECTION_TAY_VI", "edu_tay_vi_dictionary")
 COLLECTION_DICT = os.getenv("QDRANT_COLLECTION_DICT", "edu_dictionary")
 VECTOR_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", 0.45))
 RERANK_THRESHOLD = float(os.getenv("RERANK_SCORE_THRESHOLD", 0.80))
@@ -91,15 +89,20 @@ def _build_query_filter(grade: int) -> Filter:
     return Filter(must=must)
 
 
-def classify_retrieval_score(vector_score: float, rerank_score: float | None) -> str:
+def classify_retrieval_score(
+    vector_score: float,
+    rerank_score: float | None,
+    rerank_threshold: float | None = None,
+) -> str:
+    base = rerank_threshold if rerank_threshold is not None else RERANK_THRESHOLD
     if rerank_score is not None:
-        if rerank_score >= RERANK_THRESHOLD:
+        if rerank_score >= base:
             return "strong_context"
 
-        if rerank_score >= RERANK_THRESHOLD - 0.30:
+        if rerank_score >= base - 0.30:
             return "medium_context"
 
-        if rerank_score >= RERANK_THRESHOLD - 0.60:
+        if rerank_score >= base - 0.60:
             return "weak_context"
 
         return "no_relevant_context"
@@ -163,27 +166,23 @@ def _hit_to_dictionary_context(hit, rerank_score: float | None = None) -> dict:
     payload = hit.payload or {}
 
     vi = _metadata_value(payload, "vi", "")
-    tay_variants = _metadata_value(payload, "tay_variants", [])
-    nung_variants = _metadata_value(payload, "nung_variants", [])
+    tay = _metadata_value(payload, "tay", "")
+    nung = _metadata_value(payload, "nung", "")
 
-    content = _metadata_value(payload, "content", "").strip()
+    content = _metadata_value(payload, "text", "").split("\n[search:")[0].strip()
     if not content:
-        content = (
-            f"Từ tiếng Việt: {vi}.\n"
-            f"Từ tiếng Tày: {', '.join(tay_variants) if isinstance(tay_variants, list) else tay_variants}\n"
-            f"Từ tiếng Nùng: {', '.join(nung_variants) if isinstance(nung_variants, list) else nung_variants}"
-        )
+        content = f"Từ tiếng Việt: {vi}.\nTừ tiếng Tày: {tay}\nTừ tiếng Nùng: {nung}"
 
     return {
         "type": "dictionary_context",
         "content": content,
         "direction": _metadata_value(payload, "direction"),
         "vi": vi,
-        "tay_variants": tay_variants,
-        "nung_variants": nung_variants,
+        "tay": tay,
+        "nung": nung,
         "topic": _metadata_value(payload, "topic"),
         "dialect_note": _metadata_value(payload, "dialect_note"),
-        "source_file": _metadata_value(payload, "source_file"),
+        "source": _metadata_value(payload, "source"),
         "review_status": _metadata_value(payload, "review_status"),
         "source_type": _metadata_value(payload, "source_type"),
         "vector_score": float(hit.score or 0.0),

@@ -217,7 +217,8 @@ async def orchestrate(
         )
 
     if qtype == QueryType.DICT_VI_TAY:
-        result = await search_dictionary(message, direction="vi_to_tay_nung")
+        # "both" để tìm cả tay_vi entries — nhiều từ chỉ có trong từ điển Tày→Việt
+        result = await search_dictionary(message, direction="both")
         return OrchestrateResult(
             query_type=qtype,
             dict_context=(result or {}).get("context") or None,

@@ -1,17 +1,21 @@
 """
-Dictionary search cho hai collection từ điển Tày/Nùng.
+Dictionary search cho collection từ điển Tày/Nùng (single collection edu_dictionary).
 
 Tái sử dụng utilities từ vector_search (embed, rerank, classify, dedupe,
 hit→context, client) — KHÔNG copy code.
 
-Direction:
-- vi_to_tay_nung : Việt → Tày/Nùng (COLLECTION_VI_TAY)
-- tay_to_vi      : Tày → Việt (COLLECTION_TAY_VI)
-- both           : song song cả 2 collection, merge kết quả
+Direction (giá trị trong payload):
+- vi_tay_nung : Việt → Tày/Nùng
+- tay_vi      : Tày → Việt
+
+Caller (orchestrator) truyền vào:
+- "vi_to_tay_nung" → map thành payload direction "vi_tay_nung"
+- "tay_to_vi"      → map thành payload direction "tay_vi"
+- "both"           → không filter direction, tìm toàn bộ collection
 """
 
-import asyncio
 import logging
+import os
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
@@ -20,103 +24,119 @@ from backend.services.vector_search import (
     _embed,
     _rerank,
     get_client,
-    _headers,  # noqa: F401  (giữ import theo spec, dùng gián tiếp qua _embed/_rerank)
     _hit_to_dictionary_context,
     classify_retrieval_score,
     _select_context_limit,
     _dedupe_contexts,
-    COLLECTION_VI_TAY,
-    COLLECTION_TAY_VI,
+    COLLECTION_DICT,
 )
+
+# Dictionary dùng threshold thấp hơn — reranker score với dict entry thường 0.15–0.50
+# base=0.60 → weak nếu score >= 0.0, medium >= 0.30, strong >= 0.60
+RERANK_DICT_THRESHOLD = float(os.getenv("RERANK_DICT_THRESHOLD", "0.60"))
 
 log = logging.getLogger(__name__)
 
-
-def _build_dict_filter() -> Filter:
-    return Filter(
-        must=[FieldCondition(key="domain", match=MatchValue(value="dictionary"))]
-    )
+# Direction strings khớp trực tiếp với payload — không cần map
+_VALID_DIRECTIONS: set[str] = {"vi_to_tay_nung", "tay_to_vi", "both"}
 
 
-def _payload_get(payload: dict, key, default=None):
-    if key in payload and payload.get(key) is not None:
-        return payload.get(key)
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict) and key in metadata:
-        return metadata.get(key, default)
-    return default
+def _build_dict_filter(payload_direction: str | None = None) -> Filter:
+    """
+    Filter cho collection edu_dictionary.
+    Nếu payload_direction được truyền, filter thêm theo direction.
+    """
+    conditions: list[FieldCondition] = []  # word_chunk & topic_chunk đều hợp lệ
+    if payload_direction:
+        conditions.append(
+            FieldCondition(key="direction", match=MatchValue(value=payload_direction))
+        )
+    return Filter(must=conditions)
+
+
+def _first_variant(raw: str) -> str:
+    """Lấy biến thể đầu tiên — bỏ ghi chú phương ngữ trong dấu ngoặc."""
+    if not raw:
+        return ""
+    for sep in ("(", ";", "\n"):
+        raw = raw.split(sep)[0]
+    return raw.strip()
 
 
 def _hit_content(hit) -> str:
-    """Trích text từ payload để rerank."""
+    """Trích text từ payload để rerank.
+
+    vi_tay_nung: xây câu tự nhiên có 'tiếng Tày/Nùng' để reranker khớp tốt hơn
+        với các query dạng 'X tiếng Tày là gì'.
+    tay_vi:      dùng text field gốc (đã ngắn gọn).
+    """
     payload = hit.payload or {}
+    direction = payload.get("direction", "")
 
-    content = _payload_get(payload, "content")
-    if content:
-        return str(content).strip()
+    if direction == "vi_tay_nung":
+        vi = (payload.get("vi") or "").strip()
+        tay_first = _first_variant(payload.get("tay") or "")
+        nung_first = _first_variant(payload.get("nung") or "")
+        parts: list[str] = []
+        if tay_first:
+            parts.append(f"tiếng Tày là {tay_first}")
+        if nung_first:
+            parts.append(f"tiếng Nùng là {nung_first}")
+        if parts:
+            return f"{vi}: {'; '.join(parts)}."
+        return vi
 
-    vi = _payload_get(payload, "vi", "") or ""
-    tay = _payload_get(payload, "tay", "") or ""
-    tay_variants = _payload_get(payload, "tay_variants", []) or []
-    nung_variants = _payload_get(payload, "nung_variants", []) or []
+    if direction == "tay_vi":
+        vi = (payload.get("vi") or "").strip()
+        tay = (payload.get("tay") or "").strip()
+        # Bỏ chỉ số đồng âm "(2)", "(3)" ở cuối tay headword
+        import re as _re
+        tay_clean = _re.sub(r"\s*\(\d+\)\s*$", "", tay).strip()
+        if vi and tay_clean:
+            return f"{vi}: tiếng Tày là {tay_clean}."
 
+    # Fallback: dùng text field gốc
+    text = payload.get("text", "") or ""
+    if text:
+        return text.split("\n[search:")[0].strip()
+    tay = payload.get("tay", "") or ""
+    vi = payload.get("vi", "") or ""
     if tay and vi:
         return f"{tay} = {vi}"
-
-    parts = []
-    if vi:
-        parts.append(f"Việt: {vi}")
-    if tay_variants:
-        tay_str = (
-            ", ".join(tay_variants)
-            if isinstance(tay_variants, list)
-            else str(tay_variants)
-        )
-        parts.append(f"Tày: {tay_str}")
-    if nung_variants:
-        nung_str = (
-            ", ".join(nung_variants)
-            if isinstance(nung_variants, list)
-            else str(nung_variants)
-        )
-        parts.append(f"Nùng: {nung_str}")
-    if tay and not vi:
-        parts.append(f"Tày: {tay}")
-
-    return "; ".join(parts)
+    return (tay or vi).strip()
 
 
-async def _search_one_collection(
+async def _search_collection(
     query: str,
     vector: list[float],
-    collection_name: str,
+    payload_direction: str | None,
     top_k: int,
 ) -> tuple[list, list[float]]:
-    """Query 1 collection từ điển, trả (valid_hits, rerank_scores)."""
+    """Query edu_dictionary, lọc theo direction nếu có. Trả (valid_hits, rerank_scores)."""
     client: QdrantClient = get_client()
     response = client.query_points(
-        collection_name=collection_name,
+        collection_name=COLLECTION_DICT,
         query=vector,
         limit=top_k,
-        query_filter=_build_dict_filter(),
+        query_filter=_build_dict_filter(payload_direction),
         with_payload=True,
     )
     hits = response.points
 
     if not hits:
-        log.info("[DICT_SEARCH] %s → 0 hits", collection_name)
+        log.info("[DICT_SEARCH] direction=%s → 0 hits", payload_direction or "both")
         return [], []
 
     log.info(
-        "[DICT_SEARCH] %s hits=%d  top3_vector=%s",
-        collection_name,
+        "[DICT_SEARCH] direction=%s  hits=%d  top3_vector=%s",
+        payload_direction or "both",
         len(hits),
         [f"{h.score:.4f}" for h in hits[:3]],
     )
 
     valid_hits = [h for h in hits if h.payload and _hit_content(h)]
     if not valid_hits:
-        log.info("[DICT_SEARCH] %s → no valid hits with content", collection_name)
+        log.info("[DICT_SEARCH] direction=%s → no valid hits", payload_direction or "both")
         return [], []
 
     documents = [_hit_content(h) for h in valid_hits]
@@ -134,6 +154,8 @@ async def search_dictionary(
       {
         retrieval_status, context, top_vector_score, top_rerank_score
       }
+
+    direction nhận: "vi_to_tay_nung", "tay_to_vi", "both"
     """
     log.info(
         "[DICT_SEARCH] query=%r  direction=%s  top_k=%d",
@@ -144,23 +166,17 @@ async def search_dictionary(
 
     vector = await _embed(query)
 
-    if direction == "vi_to_tay_nung":
-        valid_hits, rerank_scores = await _search_one_collection(
-            query, vector, COLLECTION_VI_TAY, top_k
-        )
-    elif direction == "tay_to_vi":
-        valid_hits, rerank_scores = await _search_one_collection(
-            query, vector, COLLECTION_TAY_VI, top_k
-        )
-    elif direction == "both":
-        (hits_vt, scores_vt), (hits_tv, scores_tv) = await asyncio.gather(
-            _search_one_collection(query, vector, COLLECTION_VI_TAY, top_k),
-            _search_one_collection(query, vector, COLLECTION_TAY_VI, top_k),
-        )
-        valid_hits = list(hits_vt) + list(hits_tv)
-        rerank_scores = list(scores_vt) + list(scores_tv)
+    _MISSING = object()
+    if direction == "both":
+        payload_direction = None  # không filter direction → tìm cả 2
     else:
-        raise ValueError(f"Unsupported direction: {direction!r}")
+        if direction not in _VALID_DIRECTIONS:
+            raise ValueError(f"Unsupported direction: {direction!r}")
+        payload_direction = direction  # khớp trực tiếp với payload field
+
+    valid_hits, rerank_scores = await _search_collection(
+        query, vector, payload_direction, top_k
+    )
 
     if not valid_hits:
         return {
@@ -181,6 +197,7 @@ async def search_dictionary(
     retrieval_status = classify_retrieval_score(
         vector_score=best_vector_score,
         rerank_score=best_rerank_score,
+        rerank_threshold=RERANK_DICT_THRESHOLD,
     )
 
     log.info(
@@ -192,7 +209,7 @@ async def search_dictionary(
     )
 
     context_limit = _select_context_limit(retrieval_status)
-    # Cho "both" cho phép gấp đôi để giữ kết quả từ cả 2 collection
+    # "both" trả kết quả từ cả 2 direction → cho phép gấp đôi
     if direction == "both" and context_limit > 0:
         context_limit = context_limit * 2
 
