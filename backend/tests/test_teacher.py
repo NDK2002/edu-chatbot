@@ -1,6 +1,6 @@
 import pytest
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from backend.main import app
 
@@ -12,8 +12,7 @@ MOCK_PLAN = {
     "exercises": ["3 × 4 = ?"],
 }
 
-@pytest.mark.asyncio
-async def test_generate_lesson_no_auth_returns_plan():
+def test_generate_lesson_no_auth_returns_plan():
     """No auth header → plan generated but not saved (lesson_id=None)."""
     with patch("backend.routers.teacher.search", new_callable=AsyncMock) as mock_search, \
          patch("backend.routers.teacher.ask_gemini_json", new_callable=AsyncMock) as mock_gemini:
@@ -29,8 +28,7 @@ async def test_generate_lesson_no_auth_returns_plan():
     assert data["id"] is None
 
 
-@pytest.mark.asyncio
-async def test_generate_lesson_with_rag_context():
+def test_generate_lesson_with_rag_context():
     """When Qdrant returns strong context, rag_used=True."""
     with patch("backend.routers.teacher.search", new_callable=AsyncMock) as mock_search, \
          patch("backend.routers.teacher.ask_gemini_json", new_callable=AsyncMock) as mock_gemini:
