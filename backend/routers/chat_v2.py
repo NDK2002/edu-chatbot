@@ -279,7 +279,7 @@ async def chat(
         bool(result.dict_context),
     )
 
-    # 4. Rule Engine shortcut
+    # 4. Rule Engine shortcut — tính đúng, Gemini diễn đạt thân thiện
     if (
         result.query_type == QueryType.MATH_CALCULATE
         and result.math_result is not None
@@ -288,25 +288,74 @@ async def chat(
         mr = result.math_result
         log.info("[CHAT_V2] → rule_engine  answer=%r", mr.answer)
 
+        # Vocab (dùng chung logic với nhánh Gemini)
+        rule_vocab_list = (
+            _build_vocab(result.dict_context)
+            if result.dict_context and result.best_dict_rerank >= 0.10
+            else []
+        )
+        rule_vocab_data = (
+            [{"vi": v.vi, "tay": v.tay, "nung": v.nung} for v in rule_vocab_list]
+            if rule_vocab_list else None
+        )
+
+        # Context cho Gemini: kết quả chính xác từ Rule Engine + từ điển (nếu có)
+        steps_str = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(mr.steps))
+        explain_parts = [
+            "⚠️ KẾT QUẢ ĐÃ ĐƯỢC HỆ THỐNG TÍNH CHÍNH XÁC — KHÔNG TỰ TÍNH LẠI SỐ:",
+            f"Công thức: {mr.formula}",
+            f"Các bước:\n{steps_str}",
+            f"Đáp án: {mr.answer}",
+            "",
+            "Nhiệm vụ: Diễn đạt lại từng bước trên bằng tiếng Việt đơn giản, thân thiện với học sinh tiểu học.",
+            "Chỉ dùng đúng các số và bước giải đã ghi — tuyệt đối không tự tính lại.",
+        ]
+        if result.dict_context and result.best_dict_rerank >= 0.10:
+            dict_str = _format_dict_context(result.dict_context)
+            if dict_str:
+                explain_parts += ["", "Từ điển Tày/Nùng:", dict_str]
+        else:
+            explain_parts.append("\n⚠️ Không có dữ liệu từ điển Tày/Nùng. KHÔNG tạo bảng Từ cần nhớ.")
+        rule_explain_context = "\n".join(explain_parts)
+
         async def _rule_stream():
+            full_text: list[str] = []
             yield _sse({
                 "type": "metadata",
                 "source": "rule_engine",
                 "intent": mr.formula_key,
                 "steps": mr.steps,
+                "vocab": rule_vocab_data,
                 "conversation_id": conversation_id,
             })
-            yield _sse({"type": "chunk", "text": mr.formula})
+            try:
+                async for chunk in stream_gemini(
+                    prompt=req.message,
+                    context=rule_explain_context,
+                    grade=req.grade,
+                    language=req.language,
+                    role=req.mode,
+                ):
+                    full_text.append(chunk)
+                    yield _sse({"type": "chunk", "text": chunk})
+            except Exception as exc:
+                log.error("[CHAT_V2] rule_engine explain error: %s", exc)
+                # Fallback: hiển thị trực tiếp formula + steps
+                fallback = mr.formula + "\n" + "\n".join(mr.steps)
+                full_text.append(fallback)
+                yield _sse({"type": "chunk", "text": fallback})
             if user_id and conversation_id:
+                assistant_text = "".join(full_text)
                 auto_title = None
                 if message_count == 0:
                     auto_title = " ".join(req.message.split()[:5])[:30]
                 try:
                     await save_conv_messages(
-                        conversation_id, req.message, mr.formula,
+                        conversation_id, req.message, assistant_text,
                         result.query_type.value, "rule_engine",
                         auto_title=auto_title, current_count=message_count,
                         steps=mr.steps or None,
+                        vocab=rule_vocab_data,
                     )
                 except Exception as exc:
                     log.warning("[CHAT_V2] rule_engine save failed: %s", exc)
