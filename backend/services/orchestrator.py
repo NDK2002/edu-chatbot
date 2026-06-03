@@ -239,7 +239,7 @@ async def orchestrate(
         )
 
     if qtype == QueryType.DICT_TAY_VI:
-        result = await search_dictionary(message, direction="tay_to_vi")
+        result = await search_dictionary(message, direction="both")
         return OrchestrateResult(
             query_type=qtype,
             dict_context=(result or {}).get("context") or None,
