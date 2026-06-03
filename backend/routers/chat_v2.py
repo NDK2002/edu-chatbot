@@ -313,7 +313,12 @@ async def chat(
     else:
         full_context = rag_context
 
-    vocab_list = _build_vocab(result.dict_context) if result.dict_context else []
+    # Chỉ show vocab card khi dict retrieval thực sự có kết quả liên quan
+    vocab_list = (
+        _build_vocab(result.dict_context)
+        if result.dict_context and result.best_dict_rerank >= 0.10
+        else []
+    )
     if not vocab_list and not result.dict_context:
         no_dict_note = "\n⚠️ Không có dữ liệu từ điển Tày/Nùng cho câu hỏi này. Không tạo bảng Từ cần nhớ."
         full_context = (full_context + no_dict_note) if full_context else no_dict_note

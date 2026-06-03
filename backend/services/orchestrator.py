@@ -35,6 +35,7 @@ class OrchestrateResult:
     math_context: list[dict] | None = None
     dict_context: list[dict] | None = None
     retrieval_status: str = "no_relevant_context"
+    best_dict_rerank: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +234,8 @@ async def orchestrate(
         return OrchestrateResult(
             query_type=qtype,
             dict_context=(result or {}).get("context") or None,
-            retrieval_status=(result or {}).get(
-                "retrieval_status", "no_relevant_context"
-            ),
+            retrieval_status=(result or {}).get("retrieval_status", "no_relevant_context"),
+            best_dict_rerank=float((result or {}).get("top_rerank_score", 0.0)),
         )
 
     if qtype == QueryType.DICT_TAY_VI:
@@ -243,9 +243,8 @@ async def orchestrate(
         return OrchestrateResult(
             query_type=qtype,
             dict_context=(result or {}).get("context") or None,
-            retrieval_status=(result or {}).get(
-                "retrieval_status", "no_relevant_context"
-            ),
+            retrieval_status=(result or {}).get("retrieval_status", "no_relevant_context"),
+            best_dict_rerank=float((result or {}).get("top_rerank_score", 0.0)),
         )
 
     if qtype == QueryType.MATH_WITH_DICT:
@@ -262,6 +261,7 @@ async def orchestrate(
             math_context=(math_res or {}).get("context") or None,
             dict_context=(dict_res or {}).get("context") or None,
             retrieval_status=_best_status(statuses),
+            best_dict_rerank=float((dict_res or {}).get("top_rerank_score", 0.0)),
         )
 
     # GENERAL — không search
