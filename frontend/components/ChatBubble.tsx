@@ -30,7 +30,7 @@ interface Props {
   streaming?: boolean;
 }
 
-function SourceBadge({ source }: { source?: string }) {
+function SourceBadge({ source, hasVocab }: { source?: string; hasVocab?: boolean }) {
   if (!source || source === "safety") return null;
   if (source === "vector") {
     return (
@@ -46,7 +46,14 @@ function SourceBadge({ source }: { source?: string }) {
       </span>
     );
   }
-  // "llm" or any unknown source — fallback, not from SGK
+  // "llm": explanation from AI, but vocab (if any) came from dictionary RAG
+  if (hasVocab) {
+    return (
+      <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+        🤖 AI giải thích · 📚 Từ điển Tày/Nùng
+      </span>
+    );
+  }
   return (
     <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
       🤖 AI tổng hợp · chưa kiểm chứng từ SGK
@@ -169,7 +176,7 @@ export default function ChatBubble({
                 {grade && (
                   <span className="text-xs text-gray-400">Lớp {grade}</span>
                 )}
-                <SourceBadge source={source} />
+                <SourceBadge source={source} hasVocab={!!vocab?.length} />
               </div>
             )}
           </>
