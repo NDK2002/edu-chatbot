@@ -300,8 +300,8 @@ def _detect_percent(q: str) -> Intent | None:
             "percent_of_number", {"number": _n(m.group(2)), "percent": _n(m.group(1))}
         )
 
-    # "X là bao nhiêu % của Y" — tìm tỉ số
-    if re.search(r"bao nhiêu\s*%", q) or "tỉ số phần trăm" in q:
+    # "X là bao nhiêu % của Y" / "bao nhiêu phần trăm" — tìm tỉ số
+    if re.search(r"bao nhiêu\s*(%|phần trăm)", q) or "tỉ số phần trăm" in q:
         nums = _nums(q)
         if len(nums) >= 2:
             return Intent("find_percent_rate", {"part": nums[0], "whole": nums[1]})
@@ -372,6 +372,7 @@ def _detect_unit_conversion(q: str) -> Intent | None:
     if len_units:
         from_u = len_units[0][1]
         m = re.search(r"sang\s+(mm|cm|dm|m|km)\b", q, re.IGNORECASE)
+        m = m or re.search(r"bằng bao nhiêu\s+(mm|cm|dm|m|km)\b", q, re.IGNORECASE)
         if m:
             return Intent(
                 "length_conversion",
@@ -380,9 +381,19 @@ def _detect_unit_conversion(q: str) -> Intent | None:
     if mass_units:
         from_u = mass_units[0][1]
         m = re.search(r"sang\s+(mg|g|kg|tấn)\b", q, re.IGNORECASE)
+        m = m or re.search(r"bằng bao nhiêu\s+(mg|g|kg|tấn)\b", q, re.IGNORECASE)
         if m:
             return Intent(
                 "mass_conversion",
+                {"value": value, "from_unit": from_u, "to_unit": m.group(1)},
+            )
+    if time_units:
+        from_u = time_units[0][1]
+        m = re.search(r"sang\s+(giây|phút|giờ|ngày)\b", q, re.IGNORECASE)
+        m = m or re.search(r"bằng bao nhiêu\s+(giây|phút|giờ|ngày)\b", q, re.IGNORECASE)
+        if m:
+            return Intent(
+                "time_conversion",
                 {"value": value, "from_unit": from_u, "to_unit": m.group(1)},
             )
 
