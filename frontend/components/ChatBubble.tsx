@@ -30,6 +30,30 @@ interface Props {
   streaming?: boolean;
 }
 
+function SourceBadge({ source }: { source?: string }) {
+  if (!source || source === "safety") return null;
+  if (source === "vector") {
+    return (
+      <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+        📚 SGK Cánh Diều
+      </span>
+    );
+  }
+  if (source === "rule_engine") {
+    return (
+      <span className="text-xs bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full font-medium">
+        🔢 Tính toán chính xác
+      </span>
+    );
+  }
+  // "llm" or any unknown source — fallback, not from SGK
+  return (
+    <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+      🤖 AI tổng hợp · chưa kiểm chứng từ SGK
+    </span>
+  );
+}
+
 export default function ChatBubble({
   role,
   content,
@@ -141,11 +165,12 @@ export default function ChatBubble({
             )}
 
             {isDone && !streaming && (source || grade) && (
-              <p className="mt-2 text-xs text-gray-400">
-                {grade ? `Lớp ${grade}` : ""}
-                {grade && source ? " · " : ""}
-                {source ?? ""}
-              </p>
+              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                {grade && (
+                  <span className="text-xs text-gray-400">Lớp {grade}</span>
+                )}
+                <SourceBadge source={source} />
+              </div>
             )}
           </>
         )}

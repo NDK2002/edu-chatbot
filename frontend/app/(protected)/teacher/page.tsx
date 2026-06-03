@@ -465,9 +465,13 @@ function LessonPlanView({ plan }: { plan: LessonPlanResponse }) {
         <span className="text-xs font-semibold text-gray-500">
           {plan.subject} · Lớp {plan.grade}
         </span>
-        {plan.rag_used && (
-          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
-            📚 RAG từ SGK
+        {plan.rag_used ? (
+          <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+            📚 SGK Cánh Diều
+          </span>
+        ) : (
+          <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+            🤖 AI tổng hợp · chưa kiểm chứng từ SGK
           </span>
         )}
       </div>
