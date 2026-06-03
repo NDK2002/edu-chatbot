@@ -24,7 +24,7 @@ const DEFAULT_MESSAGES: Message[] = [
     id: 0,
     role: "bot",
     content:
-      "Xin chào! Mình là trợ lý học tập của em.\nMình có thể giúp em:\n- Giải bài Toán từng bước\n- Giải thích từ khó trong đề bài\n- Tra từ tiếng Tày, tiếng Nùng\n\nEm muốn hỏi gì hôm nay?",
+      "Xin chào con! Cô là trợ lý học tập của con.\nCô có thể giúp con:\n- Giải bài Toán từng bước\n- Giải thích từ khó trong đề bài\n- Tra từ tiếng Tày, tiếng Nùng\n\nCon muốn hỏi gì hôm nay?",
   },
 ];
 

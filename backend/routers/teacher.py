@@ -140,6 +140,8 @@ async def generate_lesson(
     base_instruction = (
         f"Soạn giáo án môn {req.subject} lớp {req.grade}, chủ đề: {req.topic}. "
         f"Dùng ví dụ gần gũi với học sinh Tày/Nùng vùng cao (núi rừng, nương rẫy, lễ hội dân tộc). "
+        f"Ví dụ minh họa phải cân bằng giới tính: dùng cả tên bạn nam lẫn bạn nữ, "
+        f"không gán nghề nghiệp hay vai trò theo giới tính (ví dụ không chỉ 'bố đi làm, mẹ nấu cơm'). "
         f"Chuẩn kiến thức theo GDPT 2018. "
         f"Trả về JSON đúng format: {json_schema}"
     )
