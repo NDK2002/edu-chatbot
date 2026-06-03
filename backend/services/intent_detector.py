@@ -8,6 +8,7 @@ Flow: detect(query) → Intent(rule_fn, params) | None
 
 import logging
 import re
+import ast
 from dataclasses import dataclass, field
 
 from backend.services.math_rules import RULES, MathResult
@@ -17,7 +18,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Intent:
-    rule_fn: str        # tên hàm trong RULES
+    rule_fn: str  # tên hàm trong RULES
     params: dict = field(default_factory=dict)
 
 
@@ -34,8 +35,12 @@ _UNIT_TIME = {"giây", "phút", "giờ", "ngày"}
 
 _UNIT_LEN_RE = re.compile(r"\b(\d+(?:[,\.]\d+)?)\s*(mm|cm|dm|km|m)\b", re.IGNORECASE)
 _UNIT_MASS_RE = re.compile(r"\b(\d+(?:[,\.]\d+)?)\s*(mg|kg|tấn|tan|g)\b", re.IGNORECASE)
-_UNIT_TIME_RE = re.compile(r"\b(\d+(?:[,\.]\d+)?)\s*(giây|phút|giờ|ngày)\b", re.IGNORECASE)
-_UNIT_AREA_RE = re.compile(r"\b(\d+(?:[,\.]\d+)?)\s*(mm²|cm²|dm²|m²|km²|ha|a)\b", re.IGNORECASE)
+_UNIT_TIME_RE = re.compile(
+    r"\b(\d+(?:[,\.]\d+)?)\s*(giây|phút|giờ|ngày)\b", re.IGNORECASE
+)
+_UNIT_AREA_RE = re.compile(
+    r"\b(\d+(?:[,\.]\d+)?)\s*(mm²|cm²|dm²|m²|km²|ha|a)\b", re.IGNORECASE
+)
 
 
 def _n(s: str) -> float:
@@ -63,6 +68,7 @@ def _normalize(text: str) -> str:
 # Detectors — mỗi hàm trả Intent | None
 # ---------------------------------------------------------------------------
 
+
 def _detect_table(q: str) -> Intent | None:
     m = re.search(r"bảng\s+(nhân|cửu\s+chương)\s+(\d+)", q)
     if m:
@@ -77,15 +83,25 @@ def _detect_basic_arithmetic(q: str) -> Intent | None:
     # Dạng "số op số [đơn vị]" — ưu tiên phát hiện phép tính tường minh
     m = re.search(r"(\d+(?:[,\.]\d+)?)\s*\+\s*(\d+(?:[,\.]\d+)?)", q)
     if m:
-        unit = _first_unit(q, _UNIT_LEN, _UNIT_LEN_RE) or \
-                _first_unit(q, _UNIT_MASS, _UNIT_MASS_RE) or ""
-        return Intent("addition", {"a": _n(m.group(1)), "b": _n(m.group(2)), "unit": unit})
+        unit = (
+            _first_unit(q, _UNIT_LEN, _UNIT_LEN_RE)
+            or _first_unit(q, _UNIT_MASS, _UNIT_MASS_RE)
+            or ""
+        )
+        return Intent(
+            "addition", {"a": _n(m.group(1)), "b": _n(m.group(2)), "unit": unit}
+        )
 
     m = re.search(r"(\d+(?:[,\.]\d+)?)\s*[-−]\s*(\d+(?:[,\.]\d+)?)", q)
     if m:
-        unit = _first_unit(q, _UNIT_LEN, _UNIT_LEN_RE) or \
-                _first_unit(q, _UNIT_MASS, _UNIT_MASS_RE) or ""
-        return Intent("subtraction", {"a": _n(m.group(1)), "b": _n(m.group(2)), "unit": unit})
+        unit = (
+            _first_unit(q, _UNIT_LEN, _UNIT_LEN_RE)
+            or _first_unit(q, _UNIT_MASS, _UNIT_MASS_RE)
+            or ""
+        )
+        return Intent(
+            "subtraction", {"a": _n(m.group(1)), "b": _n(m.group(2)), "unit": unit}
+        )
 
     m = re.search(r"(\d+(?:[,\.]\d+)?)\s*×\s*(\d+(?:[,\.]\d+)?)", q)
     if m:
@@ -112,6 +128,38 @@ def _detect_basic_arithmetic(q: str) -> Intent | None:
     return None
 
 
+def _detect_arithmetic_expression(q: str) -> Intent | None:
+    """Nhận dạng biểu thức toán học tổng quát như (2+3)*6, 2+(3*6)."""
+    # Chuẩn hóa ký hiệu
+    expr = q.replace("×", "*").replace("÷", "/").replace(",", ".")
+    # Chỉ cho phép số và toán tử an toàn
+    safe = re.fullmatch(r"[\d\s\+\-\*\/\(\)\.]+", expr.strip())
+    if not safe:
+        return None
+    try:
+        # Dùng compile+eval an toàn (chỉ biểu thức số)
+        code = compile(expr.strip(), "<string>", "eval")
+        # Kiểm tra chỉ có số, không có tên hàm/biến
+        allowed = {
+            ast.Expression,
+            ast.BinOp,
+            ast.UnaryOp,
+            ast.Constant,
+            ast.Add,
+            ast.Sub,
+            ast.Mult,
+            ast.Div,
+            ast.USub,
+        }
+        for node in ast.walk(ast.parse(expr.strip(), mode="eval")):
+            if type(node) not in allowed:
+                return None
+        result = eval(code)  # noqa: S307 — safe, chỉ số
+        return Intent("expression", {"result": result, "expr": expr.strip()})
+    except Exception:
+        return None
+
+
 def _detect_perimeter(q: str) -> Intent | None:
     if "chu vi" not in q:
         return None
@@ -124,8 +172,10 @@ def _detect_perimeter(q: str) -> Intent | None:
 
     if "hình chữ nhật" in q:
         if len(nums) >= 2:
-            return Intent("rectangle_perimeter",
-                            {"length": nums[0], "width": nums[1], "unit": unit})
+            return Intent(
+                "rectangle_perimeter",
+                {"length": nums[0], "width": nums[1], "unit": unit},
+            )
 
     if "hình vuông" in q:
         if len(nums) >= 1:
@@ -133,12 +183,16 @@ def _detect_perimeter(q: str) -> Intent | None:
 
     if "hình tam giác" in q or "tam giác" in q:
         if len(nums) >= 3:
-            return Intent("triangle_perimeter",
-                            {"a": nums[0], "b": nums[1], "c": nums[2], "unit": unit})
+            return Intent(
+                "triangle_perimeter",
+                {"a": nums[0], "b": nums[1], "c": nums[2], "unit": unit},
+            )
         if len(nums) == 1:
             # Tam giác đều
-            return Intent("triangle_perimeter",
-                            {"a": nums[0], "b": nums[0], "c": nums[0], "unit": unit})
+            return Intent(
+                "triangle_perimeter",
+                {"a": nums[0], "b": nums[0], "c": nums[0], "unit": unit},
+            )
 
     return None
 
@@ -155,13 +209,16 @@ def _detect_area(q: str) -> Intent | None:
 
     if "hình thang" in q:
         if len(nums) >= 3:
-            return Intent("trapezoid_area",
-                            {"a": nums[0], "b": nums[1], "height": nums[2], "unit": unit})
+            return Intent(
+                "trapezoid_area",
+                {"a": nums[0], "b": nums[1], "height": nums[2], "unit": unit},
+            )
 
     if "hình chữ nhật" in q:
         if len(nums) >= 2:
-            return Intent("rectangle_area",
-                            {"length": nums[0], "width": nums[1], "unit": unit})
+            return Intent(
+                "rectangle_area", {"length": nums[0], "width": nums[1], "unit": unit}
+            )
 
     if "hình vuông" in q:
         if len(nums) >= 1:
@@ -169,8 +226,9 @@ def _detect_area(q: str) -> Intent | None:
 
     if "hình tam giác" in q or "tam giác" in q:
         if len(nums) >= 2:
-            return Intent("triangle_area",
-                            {"base": nums[0], "height": nums[1], "unit": unit})
+            return Intent(
+                "triangle_area", {"base": nums[0], "height": nums[1], "unit": unit}
+            )
 
     return None
 
@@ -187,8 +245,10 @@ def _detect_volume(q: str) -> Intent | None:
 
     if "hộp chữ nhật" in q or "hình hộp" in q:
         if len(nums) >= 3:
-            return Intent("box_volume",
-                            {"length": nums[0], "width": nums[1], "height": nums[2], "unit": unit})
+            return Intent(
+                "box_volume",
+                {"length": nums[0], "width": nums[1], "height": nums[2], "unit": unit},
+            )
 
     return None
 
@@ -204,8 +264,8 @@ def _labeled_num(q: str, *labels: str) -> float | None:
 
 def _detect_speed(q: str) -> Intent | None:
     has_speed = any(k in q for k in ("vận tốc", "tốc độ"))
-    has_dist  = any(k in q for k in ("quãng đường", "khoảng cách"))
-    has_time  = any(k in q for k in ("thời gian", "mất", "đi hết"))
+    has_dist = any(k in q for k in ("quãng đường", "khoảng cách"))
+    has_time = any(k in q for k in ("thời gian", "mất", "đi hết"))
 
     if not (has_speed or has_dist or has_time):
         return None
@@ -214,28 +274,31 @@ def _detect_speed(q: str) -> Intent | None:
     t_unit = _first_unit(q, _UNIT_TIME, _UNIT_TIME_RE) or "giờ"
 
     # Extract giá trị gắn với label để tránh nhầm thứ tự số
-    speed    = _labeled_num(q, "vận tốc", "tốc độ")
+    speed = _labeled_num(q, "vận tốc", "tốc độ")
     distance = _labeled_num(q, "quãng đường", "khoảng cách")
-    time     = _labeled_num(q, "thời gian", "mất", "đi hết")
+    time = _labeled_num(q, "thời gian", "mất", "đi hết")
 
-    find_time  = re.search(r"(thời gian|mất|đi hết)[^?]{0,20}(bao nhiêu|\?)", q)
-    find_dist  = re.search(r"(quãng đường|khoảng cách)[^?]{0,20}(bao nhiêu|\?)", q)
+    find_time = re.search(r"(thời gian|mất|đi hết)[^?]{0,20}(bao nhiêu|\?)", q)
+    find_dist = re.search(r"(quãng đường|khoảng cách)[^?]{0,20}(bao nhiêu|\?)", q)
     find_speed = re.search(r"(vận tốc|tốc độ)[^?]{0,20}(bao nhiêu|\?)", q)
 
     if find_time and distance is not None and speed is not None:
-        return Intent("time_from_distance_speed",
-                        {"distance": distance, "speed": speed,
-                        "d_unit": d_unit, "t_unit": t_unit})
+        return Intent(
+            "time_from_distance_speed",
+            {"distance": distance, "speed": speed, "d_unit": d_unit, "t_unit": t_unit},
+        )
 
     if find_dist and speed is not None and time is not None:
-        return Intent("distance_from_speed_time",
-                        {"speed": speed, "time": time,
-                        "s_unit": d_unit, "t_unit": t_unit})
+        return Intent(
+            "distance_from_speed_time",
+            {"speed": speed, "time": time, "s_unit": d_unit, "t_unit": t_unit},
+        )
 
     if (find_speed or not find_time) and distance is not None and time is not None:
-        return Intent("speed_from_distance_time",
-                        {"distance": distance, "time": time,
-                        "d_unit": d_unit, "t_unit": t_unit})
+        return Intent(
+            "speed_from_distance_time",
+            {"distance": distance, "time": time, "d_unit": d_unit, "t_unit": t_unit},
+        )
 
     return None
 
@@ -244,8 +307,9 @@ def _detect_percent(q: str) -> Intent | None:
     # "X% của Y" — tìm giá trị
     m = re.search(r"(\d+(?:[,\.]\d+)?)\s*%\s*(?:của|trong)\s+(\d+(?:[,\.]\d+)?)", q)
     if m:
-        return Intent("percent_of_number",
-                        {"number": _n(m.group(2)), "percent": _n(m.group(1))})
+        return Intent(
+            "percent_of_number", {"number": _n(m.group(2)), "percent": _n(m.group(1))}
+        )
 
     # "X là bao nhiêu % của Y" — tìm tỉ số
     if re.search(r"bao nhiêu\s*%", q) or "tỉ số phần trăm" in q:
@@ -257,8 +321,10 @@ def _detect_percent(q: str) -> Intent | None:
     if re.search(r"số\s+gốc|tổng\s+số|tất\s+cả", q):
         m = re.search(r"(\d+(?:[,\.]\d+)?)[^\d]*(\d+(?:[,\.]\d+)?)\s*%", q)
         if m:
-            return Intent("find_original_from_percent",
-                            {"part": _n(m.group(1)), "percent": _n(m.group(2))})
+            return Intent(
+                "find_original_from_percent",
+                {"part": _n(m.group(1)), "percent": _n(m.group(2))},
+            )
 
     return None
 
@@ -281,31 +347,55 @@ def _detect_unit_conversion(q: str) -> Intent | None:
     area_units = _UNIT_AREA_RE.findall(q)
 
     if len(len_units) >= 2:
-        return Intent("length_conversion",
-                        {"value": value, "from_unit": len_units[0][1], "to_unit": len_units[1][1]})
+        return Intent(
+            "length_conversion",
+            {"value": value, "from_unit": len_units[0][1], "to_unit": len_units[1][1]},
+        )
     if len(mass_units) >= 2:
-        return Intent("mass_conversion",
-                        {"value": value, "from_unit": mass_units[0][1], "to_unit": mass_units[1][1]})
+        return Intent(
+            "mass_conversion",
+            {
+                "value": value,
+                "from_unit": mass_units[0][1],
+                "to_unit": mass_units[1][1],
+            },
+        )
     if len(time_units) >= 2:
-        return Intent("time_conversion",
-                        {"value": value, "from_unit": time_units[0][1], "to_unit": time_units[1][1]})
+        return Intent(
+            "time_conversion",
+            {
+                "value": value,
+                "from_unit": time_units[0][1],
+                "to_unit": time_units[1][1],
+            },
+        )
     if len(area_units) >= 2:
-        return Intent("area_conversion",
-                        {"value": value, "from_unit": area_units[0][1], "to_unit": area_units[1][1]})
+        return Intent(
+            "area_conversion",
+            {
+                "value": value,
+                "from_unit": area_units[0][1],
+                "to_unit": area_units[1][1],
+            },
+        )
 
     # Nếu chỉ có 1 đơn vị nguồn, tìm đơn vị đích trong văn bản
     if len_units:
         from_u = len_units[0][1]
         m = re.search(r"sang\s+(mm|cm|dm|m|km)\b", q, re.IGNORECASE)
         if m:
-            return Intent("length_conversion",
-                            {"value": value, "from_unit": from_u, "to_unit": m.group(1)})
+            return Intent(
+                "length_conversion",
+                {"value": value, "from_unit": from_u, "to_unit": m.group(1)},
+            )
     if mass_units:
         from_u = mass_units[0][1]
         m = re.search(r"sang\s+(mg|g|kg|tấn)\b", q, re.IGNORECASE)
         if m:
-            return Intent("mass_conversion",
-                            {"value": value, "from_unit": from_u, "to_unit": m.group(1)})
+            return Intent(
+                "mass_conversion",
+                {"value": value, "from_unit": from_u, "to_unit": m.group(1)},
+            )
 
     return None
 
@@ -322,7 +412,8 @@ _DETECTORS = [
     _detect_speed,
     _detect_percent,
     _detect_unit_conversion,
-    _detect_basic_arithmetic,   # cuối cùng — dễ bắt nhầm
+    _detect_basic_arithmetic,
+    _detect_arithmetic_expression,
 ]
 
 
@@ -330,14 +421,19 @@ _DETECTORS = [
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def detect(query: str) -> Intent | None:
     """Phân tích query, trả Intent nếu là bài tính, None nếu là câu hỏi lý thuyết."""
     q = _normalize(query)
     for detector in _DETECTORS:
         result = detector(q)
         if result:
-            log.debug("[INTENT] detector=%s  rule=%s  params=%s",
-                      detector.__name__, result.rule_fn, result.params)
+            log.debug(
+                "[INTENT] detector=%s  rule=%s  params=%s",
+                detector.__name__,
+                result.rule_fn,
+                result.params,
+            )
             return result
     log.debug("[INTENT] no match → theory/RAG")
     return None

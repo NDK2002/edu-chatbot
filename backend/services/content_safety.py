@@ -49,6 +49,14 @@ def is_meaningful_question(text: str) -> bool:
     if len(stripped) < 5:
         return False
 
+    _MATH_EXPR_RE = re.compile(
+        r"[\d\s\+\-\*\/\(\)\×\÷\.,]+"
+        r"(?:[\+\-\*\/\×\÷\(\)][\d\s\(\)\.]+)+"
+    )
+    
+    if _MATH_EXPR_RE.fullmatch(stripped):
+        return True
+
     words = stripped.split()
     if len(words) < 2:
         return False
