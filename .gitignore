@@ -37,3 +37,4 @@ data/.embed_cache/corpus_ateamvn.npy
 data/.embed_cache/corpus_openai.npy
 .superpowers
 docs/docs/
+docs/superpowers/
