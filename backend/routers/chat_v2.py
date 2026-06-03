@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from backend.dependencies import get_optional_user
 from backend.services.compactor import compact_conversation, should_compact
-from backend.services.content_safety import is_meaningful_question, is_safe
+from backend.services.content_safety import is_harmful_content, is_injection_attempt, is_meaningful_question
 from backend.services.gemini import ask_gemini, stream_gemini
 from backend.services.orchestrator import QueryType, orchestrate
 from backend.services.supabase_client import (
@@ -212,12 +212,22 @@ async def chat(
     )
 
     # 1. Safety checks
-    if not is_safe(req.message):
-        log.info("[CHAT_V2] → BLOCKED by content_safety")
+    if is_injection_attempt(req.message):
+        log.warning("[CHAT_V2] → BLOCKED prompt injection attempt: %r", req.message[:120])
+
+        async def _injection_stream():
+            yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
+            yield _sse({"type": "chunk", "text": "Cô chỉ có thể giúp con học Toán và tra từ Tày/Nùng thôi nhé! 😊"})
+            yield _sse({"type": "done"})
+
+        return StreamingResponse(_injection_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    if is_harmful_content(req.message):
+        log.info("[CHAT_V2] → BLOCKED harmful content")
 
         async def _safety_stream():
             yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
-            yield _sse({"type": "chunk", "text": "Câu hỏi không phù hợp."})
+            yield _sse({"type": "chunk", "text": "Câu hỏi không phù hợp. Con hãy hỏi về bài học nhé!"})
             yield _sse({"type": "done"})
 
         return StreamingResponse(_safety_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)

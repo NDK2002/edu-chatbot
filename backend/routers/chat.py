@@ -2,7 +2,7 @@ import logging
 import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from backend.services.content_safety import is_safe, is_meaningful_question
+from backend.services.content_safety import is_harmful_content, is_injection_attempt, is_meaningful_question
 from backend.services.intent_detector import detect, solve
 from backend.services.vector_search import search
 from backend.services.gemini import ask_gemini
@@ -45,9 +45,13 @@ async def chat(req: ChatRequest):
     )
 
     # 1. Safety check
-    if not is_safe(req.message):
-        log.info("[CHAT] → BLOCKED by content_safety")
-        return ChatResponse(answer="Câu hỏi không phù hợp.", source="safety")
+    if is_injection_attempt(req.message):
+        log.warning("[CHAT] → BLOCKED prompt injection: %r", req.message[:120])
+        return ChatResponse(answer="Cô chỉ có thể giúp con học Toán và tra từ Tày/Nùng thôi nhé! 😊", source="safety")
+
+    if is_harmful_content(req.message):
+        log.info("[CHAT] → BLOCKED harmful content")
+        return ChatResponse(answer="Câu hỏi không phù hợp. Con hãy hỏi về bài học nhé!", source="safety")
 
     if not is_meaningful_question(req.message):
         log.info("[CHAT] → BLOCKED by is_meaningful_question")
