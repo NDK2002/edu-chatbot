@@ -214,30 +214,6 @@ async def search_dictionary(
     best_hit, best_rerank_score = ranked[0]
     best_vector_score = float(best_hit.score or 0.0)
 
-    # Token fallback: khi cụm từ Tày/Nùng không khớp (rerank quá thấp),
-    # search từng token riêng để trả nghĩa từng từ
-    keyword = _QUESTION_SUFFIX_RE.sub("", query.strip()).strip()
-    tokens = keyword.split()
-    if best_rerank_score < 0.10 and len(tokens) >= 2:
-        log.info("[DICT_SEARCH] rerank=%.4f → token fallback for %d tokens", best_rerank_score, len(tokens))
-        token_hits: list = []
-        token_scores: list[float] = []
-        seen_ids: set = set()
-        for tok in tokens[:4]:  # giới hạn 4 token
-            tok_vec = await _embed(f"{tok} tiếng Tày Nùng")
-            t_hits, t_scores = await _search_collection(tok, tok_vec, payload_direction, top_k=5)
-            for h, s in zip(t_hits, t_scores):
-                hit_id = getattr(h, "id", None)
-                if hit_id not in seen_ids and s >= 0.10:
-                    seen_ids.add(hit_id)
-                    token_hits.append(h)
-                    token_scores.append(s)
-        if token_hits:
-            ranked = sorted(zip(token_hits, token_scores), key=lambda x: x[1], reverse=True)
-            best_hit, best_rerank_score = ranked[0]
-            best_vector_score = float(best_hit.score or 0.0)
-            log.info("[DICT_SEARCH] token fallback found %d results", len(token_hits))
-
     retrieval_status = classify_retrieval_score(
         vector_score=best_vector_score,
         rerank_score=best_rerank_score,
