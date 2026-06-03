@@ -314,6 +314,9 @@ async def chat(
         full_context = rag_context
 
     vocab_list = _build_vocab(result.dict_context) if result.dict_context else []
+    if not vocab_list and not result.dict_context:
+        no_dict_note = "\n⚠️ Không có dữ liệu từ điển Tày/Nùng cho câu hỏi này. Không tạo bảng Từ cần nhớ."
+        full_context = (full_context + no_dict_note) if full_context else no_dict_note
     log.info(
         "[CHAT_V2] → stream_gemini  context_len=%d  type=%s",
         len(full_context),
