@@ -130,32 +130,21 @@ def _detect_basic_arithmetic(q: str) -> Intent | None:
 
 def _detect_arithmetic_expression(q: str) -> Intent | None:
     """Nhận dạng biểu thức toán học tổng quát như (2+3)*6, 2+(3*6)."""
-    # Chuẩn hóa ký hiệu
     expr = q.replace("×", "*").replace("÷", "/").replace(",", ".")
-    # Chỉ cho phép số và toán tử an toàn
-    safe = re.fullmatch(r"[\d\s\+\-\*\/\(\)\.]+", expr.strip())
-    if not safe:
+    if not re.fullmatch(r"[\d\s\+\-\*\/\(\)\.]+", expr.strip()):
+        return None
+    # Phải có ít nhất 1 toán tử
+    if not re.search(r"[+\-*/]", expr.strip()):
         return None
     try:
-        # Dùng compile+eval an toàn (chỉ biểu thức số)
-        code = compile(expr.strip(), "<string>", "eval")
-        # Kiểm tra chỉ có số, không có tên hàm/biến
         allowed = {
-            ast.Expression,
-            ast.BinOp,
-            ast.UnaryOp,
-            ast.Constant,
-            ast.Add,
-            ast.Sub,
-            ast.Mult,
-            ast.Div,
-            ast.USub,
+            ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.USub,
         }
         for node in ast.walk(ast.parse(expr.strip(), mode="eval")):
             if type(node) not in allowed:
                 return None
-        result = eval(code)  # noqa: S307 — safe, chỉ số
-        return Intent("expression", {"result": result, "expr": expr.strip()})
+        return Intent("arithmetic_expression", {"expr": expr.strip()})
     except Exception:
         return None
 
@@ -412,8 +401,8 @@ _DETECTORS = [
     _detect_speed,
     _detect_percent,
     _detect_unit_conversion,
-    _detect_basic_arithmetic,
     _detect_arithmetic_expression,
+    _detect_basic_arithmetic,
 ]
 
 

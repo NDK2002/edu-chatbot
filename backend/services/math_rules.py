@@ -4,6 +4,7 @@ Nhận formula_key + params, trả về MathResult có steps giải chi tiết.
 Không để LLM tính số — mọi phép tính đều qua đây.
 """
 
+import ast
 from dataclasses import dataclass, field
 from fractions import Fraction
 import math
@@ -452,6 +453,72 @@ def time_conversion(value: float, from_unit: str, to_unit: str) -> MathResult:
 
 
 # ---------------------------------------------------------------------------
+# Biểu thức số học tổng quát (có dấu ngoặc, nhiều toán tử)
+# ---------------------------------------------------------------------------
+
+def _expr_steps(node: ast.expr) -> list[str]:
+    """Sinh bước tính trung gian từ AST — chỉ thêm bước khi có biểu thức con."""
+    _VI = {ast.Add: "+", ast.Sub: "−", ast.Mult: "×", ast.Div: "÷"}
+
+    def _eval(n: ast.expr) -> tuple[float, list[str]]:
+        if isinstance(n, ast.Constant):
+            return float(n.value), []
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+            v, s = _eval(n.operand)
+            return -v, s
+        if isinstance(n, ast.BinOp):
+            lv, ls = _eval(n.left)
+            rv, rs = _eval(n.right)
+            vi_op = _VI.get(type(n.op), "?")
+            if isinstance(n.op, ast.Add):
+                res = lv + rv
+            elif isinstance(n.op, ast.Sub):
+                res = lv - rv
+            elif isinstance(n.op, ast.Mult):
+                res = lv * rv
+            else:
+                res = lv / rv if rv else 0.0
+            combined = ls + rs
+            if not isinstance(n.left, ast.Constant) or not isinstance(n.right, ast.Constant):
+                combined.append(f"{_fmt(lv)} {vi_op} {_fmt(rv)} = {_fmt(res)}")
+            return res, combined
+        return 0.0, []
+
+    _, steps = _eval(node)
+    return steps
+
+
+def arithmetic_expression(expr: str) -> MathResult:
+    """Tính biểu thức số học tổng quát (đã xác nhận an toàn bởi intent_detector)."""
+    display = expr.replace("*", "×").replace("/", "÷")
+    try:
+        allowed = {ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
+                    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.USub}
+        tree = ast.parse(expr, mode="eval")
+        for node in ast.walk(tree):
+            if type(node) not in allowed:
+                return MathResult(formula_key="arithmetic_expression", answer="", steps=[],
+                                    error="Biểu thức không hợp lệ.")
+        result = eval(compile(expr, "<string>", "eval"))  # noqa: S307 — AST đã kiểm tra
+        intermediate = _expr_steps(tree.body)
+        if intermediate:
+            steps = [f"Biểu thức: {display}"] + intermediate + [f"Kết quả: {_fmt(result)}"]
+        else:
+            steps = [f"{display} = {_fmt(result)}"]
+        return MathResult(
+            formula_key="arithmetic_expression",
+            formula=display,
+            answer=_fmt(result),
+            steps=steps,
+        )
+    except ZeroDivisionError:
+        return MathResult(formula_key="arithmetic_expression", answer="", steps=[],
+                            error="Không thể chia cho 0.")
+    except Exception as exc:
+        return MathResult(formula_key="arithmetic_expression", answer="", steps=[], error=str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table — ánh xạ formula_key → hàm (dùng cho intent detector)
 # ---------------------------------------------------------------------------
 
@@ -483,6 +550,7 @@ RULES: dict[str, object] = {
     "mass_conversion": mass_conversion,
     "area_conversion": area_conversion,
     "time_conversion": time_conversion,
+    "arithmetic_expression": arithmetic_expression,
 }
 
 
