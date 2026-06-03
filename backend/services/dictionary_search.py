@@ -16,6 +16,7 @@ Caller (orchestrator) truyền vào:
 
 import logging
 import os
+import re as _re
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
@@ -39,6 +40,23 @@ log = logging.getLogger(__name__)
 
 # Direction strings khớp trực tiếp với payload — không cần map
 _VALID_DIRECTIONS: set[str] = {"vi_to_tay_nung", "tay_to_vi", "both"}
+
+_QUESTION_SUFFIX_RE = _re.compile(
+    r"\s+(?:là\s+gì|nghĩa\s+là\s+gì|có\s+nghĩa\s+là\s+gì)\s*\??\s*$",
+    _re.IGNORECASE,
+)
+
+
+def _build_embed_query(query: str, payload_direction: str | None) -> str:
+    """
+    Strip question suffixes ('là gì?') trước khi embed.
+    Khi direction='both', append 'tiếng Tày Nùng' để kéo vector về
+    gần vi_tay_nung entries (được index theo tiếng Việt).
+    """
+    stripped = _QUESTION_SUFFIX_RE.sub("", query.strip()).strip() or query.strip()
+    if payload_direction is None:  # "both"
+        return f"{stripped} tiếng Tày Nùng"
+    return stripped
 
 
 def _build_dict_filter(payload_direction: str | None = None) -> Filter:
@@ -164,8 +182,6 @@ async def search_dictionary(
         top_k,
     )
 
-    vector = await _embed(query)
-
     _MISSING = object()
     if direction == "both":
         payload_direction = None  # không filter direction → tìm cả 2
@@ -173,6 +189,9 @@ async def search_dictionary(
         if direction not in _VALID_DIRECTIONS:
             raise ValueError(f"Unsupported direction: {direction!r}")
         payload_direction = direction  # khớp trực tiếp với payload field
+
+    embed_query = _build_embed_query(query, payload_direction)
+    vector = await _embed(embed_query)
 
     valid_hits, rerank_scores = await _search_collection(
         query, vector, payload_direction, top_k
