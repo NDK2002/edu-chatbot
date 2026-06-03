@@ -126,7 +126,18 @@ def classify_query(message: str) -> QueryType:
     if has_dict_trigger:
         return QueryType.DICT_VI_TAY
 
-    # 4. Query ngắn ≤ 3 từ, không phải tiếng Việt phổ thông và không phải math
+    # 4a. "[từ lạ] là gì?" — subject không phải tiếng Việt phổ thông → tra từ điển Tày→Việt
+    m = re.match(r"^(.+?)\s+(?:là\s+gì|nghĩa\s+là\s+gì)\??\s*$", text)
+    if m:
+        subject_tokens = re.findall(r"\w+", m.group(1).strip())
+        if (
+            subject_tokens
+            and not any(tok in _VI_COMMON_WORDS for tok in subject_tokens)
+            and not _has_any(m.group(1), _MATH_KEYWORDS)
+        ):
+            return QueryType.DICT_TAY_VI
+
+    # 4b. Query ngắn ≤ 3 từ, không phải tiếng Việt phổ thông và không phải math
     tokens = re.findall(r"\w+", text)
     if (
         1 <= len(tokens) <= 3
