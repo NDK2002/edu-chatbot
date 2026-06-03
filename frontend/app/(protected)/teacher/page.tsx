@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import {
   generateLesson,
   fetchLessonHistory,
+  updateLesson,
   type LessonPlanResponse,
   type LessonHistoryItem,
+  type LessonActivity,
 } from "@/lib/api";
 
 const SUBJECTS = ["Toán", "Tiếng Việt", "Tự nhiên và Xã hội", "Khoa học"];
 const GRADES = [1, 2, 3, 4, 5];
+const DRAFT_KEY = "edu_lesson_draft";
+
+interface DraftPayload {
+  plan: LessonPlanResponse;
+  savedAt: string;
+}
 
 export default function TeacherPage() {
   const [topic, setTopic] = useState("");
@@ -20,17 +28,53 @@ export default function TeacherPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState<LessonPlanResponse | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [syncError, setSyncError] = useState("");
+
+  const [draftMeta, setDraftMeta] = useState<{ topic: string; savedAt: string } | null>(null);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [history, setHistory] = useState<LessonHistoryItem[]>([]);
   const [filterGrade, setFilterGrade] = useState<number | null>(null);
   const [filterSubject, setFilterSubject] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+
+  // On mount: check localStorage for unsaved draft
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const { plan, savedAt } = JSON.parse(raw) as DraftPayload;
+      if (plan?.topic) setDraftMeta({ topic: plan.topic, savedAt });
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  }, []);
+
+  // Debounce-save editDraft to localStorage while editing
+  useEffect(() => {
+    if (!isEditing || !editDraft) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ plan: editDraft, savedAt: new Date().toISOString() }));
+      } catch {
+        // localStorage unavailable or full — silently ignore
+      }
+    }, 500);
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [isEditing, editDraft]);
 
   const loadHistory = useCallback(async () => {
     try {
       const items = await fetchLessonHistory(filterGrade, filterSubject);
       setHistory(items);
     } catch {
-      // network error — keep stale history
+      // keep stale history
     }
   }, [filterGrade, filterSubject]);
 
@@ -42,6 +86,12 @@ export default function TeacherPage() {
     setIsLoading(true);
     setError("");
     setResult(null);
+    setIsEditing(false);
+    setEditDraft(null);
+    setSyncError("");
+    // Starting fresh — discard any draft
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftMeta(null);
     try {
       const res = await generateLesson(topic.trim(), grade, subject);
       setResult(res);
@@ -54,12 +104,116 @@ export default function TeacherPage() {
   }
 
   function loadFromHistory(item: LessonHistoryItem) {
-    setResult(item);
+    setShowHistory(false);
     setError("");
+    setSyncError("");
+
+    // If there's an unsaved draft for this exact lesson, resume editing it
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const { plan } = JSON.parse(raw) as DraftPayload;
+        if (plan?.id === item.id) {
+          setResult(plan);
+          setEditDraft({
+            ...plan,
+            objectives: [...plan.objectives],
+            activities: plan.activities.map((a) => ({ ...a })),
+            exercises: [...plan.exercises],
+          });
+          setTopic(plan.topic);
+          setGrade(plan.grade);
+          setSubject(plan.subject);
+          setIsEditing(true);
+          setDraftMeta(null);
+          return;
+        }
+      }
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+
+    // No matching draft — load saved version from Supabase
+    setResult(item);
     setTopic(item.topic);
     setGrade(item.grade);
     setSubject(item.subject);
-    setShowHistory(false);
+    setIsEditing(false);
+    setEditDraft(null);
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftMeta(null);
+  }
+
+  function startEditing() {
+    if (!result) return;
+    setSyncError("");
+    setEditDraft({
+      ...result,
+      objectives: [...result.objectives],
+      activities: result.activities.map((a) => ({ ...a })),
+      exercises: [...result.exercises],
+    });
+    setIsEditing(true);
+  }
+
+  function cancelEditing() {
+    setIsEditing(false);
+    setEditDraft(null);
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftMeta(null);
+  }
+
+  async function saveEditing() {
+    if (!editDraft) return;
+    setResult(editDraft);
+    setIsEditing(false);
+    setEditDraft(null);
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftMeta(null);
+    setSyncError("");
+
+    if (editDraft.id) {
+      setIsSaving(true);
+      try {
+        await updateLesson(editDraft.id, {
+          objectives: editDraft.objectives,
+          activities: editDraft.activities,
+          exercises: editDraft.exercises,
+        });
+      } catch {
+        setSyncError("Đã lưu trên thiết bị nhưng chưa đồng bộ lên máy chủ.");
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  }
+
+  function recoverDraft() {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const { plan } = JSON.parse(raw) as DraftPayload;
+      setResult(plan);
+      setEditDraft({
+        ...plan,
+        objectives: [...plan.objectives],
+        activities: plan.activities.map((a) => ({ ...a })),
+        exercises: [...plan.exercises],
+      });
+      setTopic(plan.topic);
+      setGrade(plan.grade);
+      setSubject(plan.subject);
+      setIsEditing(true);
+      setDraftMeta(null);
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+      setDraftMeta(null);
+    }
+  }
+
+  function discardDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftMeta(null);
   }
 
   return (
@@ -139,6 +293,35 @@ export default function TeacherPage() {
         {/* Main Area */}
         <main className="flex-1 overflow-y-auto">
           <div className="px-4 py-5 max-w-2xl mx-auto w-full space-y-4">
+
+            {/* Draft recovery banner */}
+            {draftMeta && !result && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                <span className="text-amber-500 text-lg shrink-0">📝</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-amber-800">Có bản nháp chưa lưu</p>
+                  <p className="text-xs text-amber-600 truncate">
+                    &ldquo;{draftMeta.topic}&rdquo; &middot;{" "}
+                    {new Date(draftMeta.savedAt).toLocaleString("vi-VN")}
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={discardDraft}
+                    className="text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1.5"
+                  >
+                    Bỏ qua
+                  </button>
+                  <button
+                    onClick={recoverDraft}
+                    className="text-xs text-amber-700 hover:text-amber-800 font-semibold bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Khôi phục
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Form */}
             <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 p-5">
               <h2 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
@@ -213,7 +396,52 @@ export default function TeacherPage() {
               </div>
             )}
 
-            {result && <LessonPlanView plan={result} />}
+            {syncError && (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-sm text-orange-700 flex items-center gap-2">
+                <span>⚠️</span>
+                <span>{syncError}</span>
+              </div>
+            )}
+
+            {/* Edit action bar */}
+            {result && (
+              <div className="flex items-center justify-end gap-2">
+                {!isEditing ? (
+                  <button
+                    onClick={startEditing}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-emerald-700 bg-white border border-emerald-200 rounded-xl hover:bg-emerald-50 transition-colors shadow-sm"
+                  >
+                    ✏️ Chỉnh sửa
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={cancelEditing}
+                      className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={saveEditing}
+                      disabled={isSaving}
+                      className="px-4 py-2 text-sm font-medium text-white bg-emerald-500 rounded-xl hover:bg-emerald-600 transition-colors shadow-sm disabled:opacity-60 flex items-center gap-1.5"
+                    >
+                      {isSaving ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Đang lưu...
+                        </>
+                      ) : "💾 Lưu"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {result && !isEditing && <LessonPlanView plan={result} />}
+            {result && isEditing && editDraft && (
+              <LessonPlanEditor draft={editDraft} onChange={setEditDraft} />
+            )}
 
             {!result && !isLoading && !error && (
               <div className="text-center py-10 text-gray-400">
@@ -289,6 +517,174 @@ function LessonPlanView({ plan }: { plan: LessonPlanResponse }) {
             </li>
           ))}
         </ul>
+      </div>
+    </div>
+  );
+}
+
+function LessonPlanEditor({
+  draft,
+  onChange,
+}: {
+  draft: LessonPlanResponse;
+  onChange: (d: LessonPlanResponse) => void;
+}) {
+  function setObjective(i: number, val: string) {
+    const objectives = [...draft.objectives];
+    objectives[i] = val;
+    onChange({ ...draft, objectives });
+  }
+  function removeObjective(i: number) {
+    onChange({ ...draft, objectives: draft.objectives.filter((_, idx) => idx !== i) });
+  }
+  function addObjective() {
+    onChange({ ...draft, objectives: [...draft.objectives, ""] });
+  }
+
+  function setActivity(i: number, field: keyof LessonActivity, val: string | number) {
+    const activities = draft.activities.map((a, idx) =>
+      idx === i ? { ...a, [field]: val } : a
+    );
+    onChange({ ...draft, activities });
+  }
+  function removeActivity(i: number) {
+    const activities = draft.activities
+      .filter((_, idx) => idx !== i)
+      .map((a, idx) => ({ ...a, step: idx + 1 }));
+    onChange({ ...draft, activities });
+  }
+  function addActivity() {
+    onChange({
+      ...draft,
+      activities: [
+        ...draft.activities,
+        { step: draft.activities.length + 1, duration: "5 phút", description: "" },
+      ],
+    });
+  }
+
+  function setExercise(i: number, val: string) {
+    const exercises = [...draft.exercises];
+    exercises[i] = val;
+    onChange({ ...draft, exercises });
+  }
+  function removeExercise(i: number) {
+    onChange({ ...draft, exercises: draft.exercises.filter((_, idx) => idx !== i) });
+  }
+  function addExercise() {
+    onChange({ ...draft, exercises: [...draft.exercises, ""] });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 px-1 flex-wrap">
+        <span className="text-xs font-semibold text-gray-500">
+          {draft.subject} · Lớp {draft.grade}
+        </span>
+        {draft.rag_used && (
+          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+            📚 RAG từ SGK
+          </span>
+        )}
+        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium ml-auto">
+          ✏️ Đang chỉnh sửa
+        </span>
+      </div>
+
+      {/* Mục tiêu */}
+      <div className="bg-white rounded-2xl border border-green-100 border-l-4 border-l-green-500 p-4">
+        <h3 className="text-xs font-bold text-green-700 mb-2 tracking-wide uppercase">🎯 Mục tiêu</h3>
+        <div className="space-y-2">
+          {draft.objectives.map((obj, i) => (
+            <div key={i} className="flex gap-2 items-start">
+              <span className="text-green-400 mt-2.5 shrink-0">•</span>
+              <textarea
+                value={obj}
+                onChange={(e) => setObjective(i, e.target.value)}
+                rows={2}
+                className="flex-1 text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"
+              />
+              <button
+                onClick={() => removeObjective(i)}
+                className="text-gray-300 hover:text-red-400 transition-colors text-xl leading-none mt-2 shrink-0"
+                title="Xóa"
+              >×</button>
+            </div>
+          ))}
+          <button
+            onClick={addObjective}
+            className="text-xs text-green-600 hover:text-green-700 font-medium flex items-center gap-1 mt-1"
+          >
+            + Thêm mục tiêu
+          </button>
+        </div>
+      </div>
+
+      {/* Hoạt động */}
+      <div className="bg-white rounded-2xl border border-blue-100 border-l-4 border-l-blue-500 p-4">
+        <h3 className="text-xs font-bold text-blue-700 mb-2 tracking-wide uppercase">📚 Hoạt động dạy học</h3>
+        <div className="space-y-3">
+          {draft.activities.map((act, i) => (
+            <div key={i} className="flex gap-2 items-start">
+              <span className="text-xs font-bold text-blue-400 mt-2.5 shrink-0 w-5">{act.step}.</span>
+              <div className="flex-1 space-y-1.5">
+                <input
+                  type="text"
+                  value={act.duration}
+                  onChange={(e) => setActivity(i, "duration", e.target.value)}
+                  placeholder="Thời gian (VD: 10 phút)"
+                  className="w-full text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+                <textarea
+                  value={act.description}
+                  onChange={(e) => setActivity(i, "description", e.target.value)}
+                  rows={2}
+                  className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
+                />
+              </div>
+              <button
+                onClick={() => removeActivity(i)}
+                className="text-gray-300 hover:text-red-400 transition-colors text-xl leading-none mt-2 shrink-0"
+                title="Xóa"
+              >×</button>
+            </div>
+          ))}
+          <button
+            onClick={addActivity}
+            className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+          >
+            + Thêm hoạt động
+          </button>
+        </div>
+      </div>
+
+      {/* Bài tập */}
+      <div className="bg-white rounded-2xl border border-amber-100 border-l-4 border-l-amber-500 p-4">
+        <h3 className="text-xs font-bold text-amber-700 mb-2 tracking-wide uppercase">✍️ Bài tập</h3>
+        <div className="space-y-2">
+          {draft.exercises.map((ex, i) => (
+            <div key={i} className="flex gap-2 items-start">
+              <span className="text-amber-500 font-bold text-sm mt-2 shrink-0">{i + 1}.</span>
+              <textarea
+                value={ex}
+                onChange={(e) => setExercise(i, e.target.value)}
+                rows={2}
+                className="flex-1 text-sm text-gray-700 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none"
+              />
+              <button
+                onClick={() => removeExercise(i)}
+                className="text-gray-300 hover:text-red-400 transition-colors text-xl leading-none mt-2 shrink-0"
+                title="Xóa"
+              >×</button>
+            </div>
+          ))}
+          <button
+            onClick={addExercise}
+            className="text-xs text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1"
+          >
+            + Thêm bài tập
+          </button>
+        </div>
       </div>
     </div>
   );

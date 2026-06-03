@@ -72,6 +72,26 @@ def _save_lesson_sync(
     return resp.data[0]["id"]
 
 
+def _update_lesson_sync(
+    user_id: str,
+    lesson_id: str,
+    objectives: list,
+    activities: list,
+    exercises: list,
+) -> Optional[dict]:
+    sb = get_supabase()
+    if sb is None:
+        raise RuntimeError("Supabase not configured")
+    resp = (
+        sb.table("lesson_plans")
+        .update({"objectives": objectives, "activities": activities, "exercises": exercises})
+        .eq("id", lesson_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
+
+
 def _list_lessons_sync(
     user_id: str,
     grade: Optional[int],
@@ -166,6 +186,39 @@ async def generate_lesson(
         activities=activities,
         exercises=exercises,
         rag_used=rag_used,
+    )
+
+
+class LessonUpdateRequest(BaseModel):
+    objectives: list[str]
+    activities: list[dict]
+    exercises: list[str]
+
+
+@router.put("/lesson/{lesson_id}", response_model=LessonResponse)
+async def update_lesson(
+    lesson_id: str,
+    req: LessonUpdateRequest,
+    authorization: Optional[str] = Header(None),
+):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization required")
+    token = authorization.removeprefix("Bearer ").strip()
+    user_id = await verify_jwt(token)
+    row = await asyncio.to_thread(
+        _update_lesson_sync, user_id, lesson_id, req.objectives, req.activities, req.exercises
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Giáo án không tìm thấy")
+    return LessonResponse(
+        id=row["id"],
+        topic=row["topic"],
+        grade=row["grade"],
+        subject=row["subject"],
+        objectives=row["objectives"],
+        activities=row["activities"],
+        exercises=row["exercises"],
+        rag_used=row.get("rag_used", False),
     )
 
 

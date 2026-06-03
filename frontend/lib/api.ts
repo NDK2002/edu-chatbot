@@ -182,6 +182,25 @@ export async function generateLesson(
   return res.json();
 }
 
+export async function updateLesson(
+  id: string,
+  payload: { objectives: string[]; activities: LessonActivity[]; exercises: string[] }
+): Promise<LessonPlanResponse> {
+  const token = await getAccessToken();
+  const res = await fetch(`${API_URL}/teacher/lesson/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) throw new Error("AUTH_REQUIRED");
+  if (res.status === 404) throw new Error("LESSON_NOT_FOUND");
+  if (!res.ok) throw new Error(`Lỗi cập nhật: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchLessonHistory(
   grade?: number | null,
   subject?: string | null
