@@ -53,7 +53,7 @@ export default function ProtectedShell({
     : MOBILE_NAV_BASE;
 
   return (
-    <ConversationProvider mode="student">
+    <ConversationProvider mode="student" userRole={role}>
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar: conversation history on all protected pages */}
         <ConversationSidebar displayName={displayName} role={role} />

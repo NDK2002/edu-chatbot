@@ -18,14 +18,15 @@ interface Message {
   streaming?: boolean;
 }
 
-const DEFAULT_MESSAGES: Message[] = [
-  {
-    id: 0,
-    role: "bot",
-    content:
-      "Xin chào con! Cô là trợ lý học tập của con.\nCô có thể giúp con:\n- Giải bài Toán từng bước\n- Giải thích từ khó trong đề bài\n- Tra từ tiếng Tày, tiếng Nùng\n\nCon muốn hỏi gì hôm nay?",
-  },
-];
+const STUDENT_GREETING =
+  "Xin chào con! Cô là trợ lý học tập của con.\nCô có thể giúp con:\n- Giải bài Toán từng bước\n- Giải thích từ khó trong đề bài\n- Tra từ tiếng Tày, tiếng Nùng\n\nCon muốn hỏi gì hôm nay?";
+
+const TEACHER_GREETING =
+  "Xin chào thầy/cô! Tôi là trợ lý dạy học tiểu học vùng cao.\nTôi có thể giúp thầy/cô:\n- Giải thích nội dung Toán theo SGK Cánh Diều lớp 1–5\n- Gợi ý ví dụ gần gũi với học sinh Tày/Nùng\n- Tra từ điển Việt–Tày/Nùng để dùng trong bài giảng\n\nThầy/cô cần hỗ trợ gì hôm nay?";
+
+function makeDefaultMessages(greeting: string): Message[] {
+  return [{ id: 0, role: "bot", content: greeting }];
+}
 
 // const SUGGESTIONS = [
 //   "Chu vi hình vuông là gì?",
@@ -40,9 +41,12 @@ export default function StudentPage() {
     setActiveConversationId,
     refreshConversations,
     toggleSidebar,
+    userRole,
   } = useConversation();
 
-  const [messages, setMessages] = useState<Message[]>(DEFAULT_MESSAGES);
+  const [messages, setMessages] = useState<Message[]>(() =>
+    makeDefaultMessages(userRole === "teacher" ? TEACHER_GREETING : STUDENT_GREETING)
+  );
   const [compactSummary, setCompactSummary] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [input, setInput] = useState("");
@@ -68,7 +72,7 @@ export default function StudentPage() {
     }
 
     if (activeConversationId === null) {
-      setMessages(DEFAULT_MESSAGES);
+      setMessages(makeDefaultMessages(userRole === "teacher" ? TEACHER_GREETING : STUDENT_GREETING));
       setCompactSummary(null);
       nextIdRef.current = 1;
       return;
@@ -78,13 +82,13 @@ export default function StudentPage() {
     getConversationMessages(activeConversationId)
       .then((data) => {
         if (!data) {
-          setMessages(DEFAULT_MESSAGES);
+          setMessages(makeDefaultMessages(userRole === "teacher" ? TEACHER_GREETING : STUDENT_GREETING));
           setCompactSummary(null);
           return;
         }
         setCompactSummary(data.compact_summary);
         if (data.messages.length === 0) {
-          setMessages(DEFAULT_MESSAGES);
+          setMessages(makeDefaultMessages(userRole === "teacher" ? TEACHER_GREETING : STUDENT_GREETING));
           return;
         }
         const converted: Message[] = data.messages.map((m, i) => ({
@@ -98,7 +102,7 @@ export default function StudentPage() {
         setMessages(converted);
       })
       .catch(() => {
-        setMessages(DEFAULT_MESSAGES);
+        setMessages(makeDefaultMessages(userRole === "teacher" ? TEACHER_GREETING : STUDENT_GREETING));
         setCompactSummary(null);
       })
       .finally(() => setIsLoadingMessages(false));
@@ -137,7 +141,7 @@ export default function StudentPage() {
           {
             message: trimmed,
             conversation_id: liveConvIdRef.current,
-            mode: "student",
+            mode: userRole,
           },
           (chunk) => {
             setMessages((prev) =>
@@ -241,8 +245,12 @@ export default function StudentPage() {
           <Image src="/student-icon.png" alt="Học sinh" width={20} height={20} loading="eager" />
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-sky-800 text-sm leading-tight">Chat học sinh</h1>
-          <p className="text-xs text-sky-500">Việt–Tày/Nùng · Lớp 1–5</p>
+          <h1 className="font-bold text-sky-800 text-sm leading-tight">
+            {userRole === "teacher" ? "Trợ lý giảng dạy" : "Chat học sinh"}
+          </h1>
+          <p className="text-xs text-sky-500">
+            {userRole === "teacher" ? "Hỗ trợ giáo viên · GDPT 2018" : "Việt–Tày/Nùng · Lớp 1–5"}
+          </p>
         </div>
       </header>
 
@@ -317,7 +325,7 @@ export default function StudentPage() {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Em hỏi bài ở đây nhé... ✏️"
+          placeholder={userRole === "teacher" ? "Thầy/cô hỏi ở đây nhé... 📚" : "Em hỏi bài ở đây nhé... ✏️"}
           className="flex-1 px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-sm text-gray-800 placeholder:text-gray-400"
           disabled={isSending || cooldownSeconds > 0}
           autoFocus

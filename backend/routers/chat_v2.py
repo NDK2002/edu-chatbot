@@ -212,32 +212,49 @@ async def chat(
     )
 
     # 1. Safety checks
+    is_teacher = req.mode == "teacher"
+
     if is_injection_attempt(req.message):
         log.warning("[CHAT_V2] → BLOCKED prompt injection attempt: %r", req.message[:120])
+        _msg = (
+            "Tôi chỉ có thể hỗ trợ về Toán và từ điển Tày/Nùng thôi nhé!"
+            if is_teacher else
+            "Cô chỉ có thể giúp con học Toán và tra từ Tày/Nùng thôi nhé! 😊"
+        )
 
         async def _injection_stream():
             yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
-            yield _sse({"type": "chunk", "text": "Cô chỉ có thể giúp con học Toán và tra từ Tày/Nùng thôi nhé! 😊"})
+            yield _sse({"type": "chunk", "text": _msg})
             yield _sse({"type": "done"})
 
         return StreamingResponse(_injection_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     if is_harmful_content(req.message):
         log.info("[CHAT_V2] → BLOCKED harmful content")
+        _msg = (
+            "Nội dung không phù hợp. Thầy/cô hãy hỏi về bài học nhé!"
+            if is_teacher else
+            "Câu hỏi không phù hợp. Con hãy hỏi về bài học nhé!"
+        )
 
         async def _safety_stream():
             yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
-            yield _sse({"type": "chunk", "text": "Câu hỏi không phù hợp. Con hãy hỏi về bài học nhé!"})
+            yield _sse({"type": "chunk", "text": _msg})
             yield _sse({"type": "done"})
 
         return StreamingResponse(_safety_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     if not is_meaningful_question(req.message):
         log.info("[CHAT_V2] → BLOCKED by is_meaningful_question")
+        _msg = (
+            "Tôi chưa hiểu câu hỏi này. Thầy/cô hãy hỏi về nội dung bài học nhé!"
+            if is_teacher else
+            "Cô chưa hiểu câu hỏi này. Con hãy hỏi về bài Toán hoặc môn học nhé!"
+        )
 
         async def _unclear_stream():
             yield _sse({"type": "metadata", "source": "safety", "conversation_id": None})
-            yield _sse({"type": "chunk", "text": "Cô chưa hiểu câu hỏi này. Con hãy hỏi về bài Toán hoặc môn học nhé!"})
+            yield _sse({"type": "chunk", "text": _msg})
             yield _sse({"type": "done"})
 
         return StreamingResponse(_unclear_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)

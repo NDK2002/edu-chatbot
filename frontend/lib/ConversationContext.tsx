@@ -13,6 +13,7 @@ interface ConversationContextType {
   isLoadingConversations: boolean;
   sidebarOpen: boolean;
   mode: string;
+  userRole: "student" | "teacher";
   setActiveConversationId: (id: string | null) => void;
   refreshConversations: () => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
@@ -32,9 +33,11 @@ export function useConversation(): ConversationContextType {
 export function ConversationProvider({
   children,
   mode = "student",
+  userRole = "student",
 }: {
   children: React.ReactNode;
   mode?: string;
+  userRole?: "student" | "teacher";
 }) {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -86,6 +89,7 @@ export function ConversationProvider({
         isLoadingConversations,
         sidebarOpen,
         mode,
+        userRole,
         setActiveConversationId,
         refreshConversations,
         deleteConversation,
