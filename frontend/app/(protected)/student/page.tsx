@@ -11,7 +11,6 @@ interface Message {
   id: number;
   role: "user" | "bot";
   content: string;
-  steps?: string[];
   vocab?: ChatResponse["vocab"];
   source?: string;
   grade?: number;
@@ -93,7 +92,6 @@ export default function StudentPage() {
           role: m.role === "user" ? "user" : "bot",
           content: m.content,
           source: m.source ?? undefined,
-          steps: m.steps ?? undefined,
           vocab: m.vocab ?? undefined,
         }));
         nextIdRef.current = converted.length;
@@ -164,7 +162,6 @@ export default function StudentPage() {
                       streaming: true,
                       source: meta.source,
                       vocab: meta.vocab ?? undefined,
-                      steps: meta.steps ?? undefined,
                     }
                   : m,
               ),
@@ -272,7 +269,6 @@ export default function StudentPage() {
               key={msg.id}
               role={msg.role}
               content={msg.content}
-              steps={msg.steps}
               vocab={msg.vocab}
               source={msg.source}
               grade={msg.grade}
