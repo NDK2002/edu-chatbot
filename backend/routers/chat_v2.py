@@ -364,13 +364,8 @@ async def chat(
         return StreamingResponse(_rule_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     # 5. Stream Gemini với context RAG + history
+    # Tách RAG context (dùng làm cache key) và history (gửi Gemini nhưng không cache theo)
     rag_context = _build_rag_context(result)
-    if history_context and rag_context:
-        full_context = history_context + "\n\n" + rag_context
-    elif history_context:
-        full_context = history_context
-    else:
-        full_context = rag_context
 
     # Chỉ show vocab card khi dict retrieval thực sự có kết quả liên quan
     vocab_list = (
@@ -380,10 +375,11 @@ async def chat(
     )
     if not vocab_list and not result.dict_context:
         no_dict_note = "\n⚠️ Không có dữ liệu từ điển Tày/Nùng cho câu hỏi này. Không tạo bảng Từ cần nhớ."
-        full_context = (full_context + no_dict_note) if full_context else no_dict_note
+        rag_context = (rag_context + no_dict_note) if rag_context else no_dict_note
     log.info(
-        "[CHAT_V2] → stream_gemini  context_len=%d  type=%s",
-        len(full_context),
+        "[CHAT_V2] → stream_gemini  rag_len=%d  history_len=%d  type=%s",
+        len(rag_context),
+        len(history_context),
         result.query_type.value,
     )
 
@@ -401,10 +397,11 @@ async def chat(
         try:
             async for chunk in stream_gemini(
                 prompt=req.message,
-                context=full_context,
+                context=rag_context,
                 grade=req.grade,
                 language=req.language,
                 role=req.mode,
+                history=history_context,
             ):
                 full_text.append(chunk)
                 yield _sse({"type": "chunk", "text": chunk})

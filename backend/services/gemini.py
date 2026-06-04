@@ -125,10 +125,11 @@ def is_503(e):
     reraise=True,
 )
 
-async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: str = "vi", role: str = "student") -> str:
+async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: str = "vi", role: str = "student", history: str = "") -> str:
     """
     Gọi Gemini API với server-side cache qua Redis.
     Cùng prompt → trả kết quả cache, không gọi lại API.
+    history: lịch sử hội thoại — không đưa vào cache key, chỉ gửi cho Gemini.
     """
     cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}:{role}")
 
@@ -141,8 +142,11 @@ async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: s
     # full_prompt with RAG context
     if context:
         full_prompt = f"Dựa vào tài liệu sau:\n{context}\n\nHãy trả lời câu hỏi: {prompt}"
-    else:     
+    else:
         full_prompt = prompt
+
+    if history:
+        full_prompt = f"{history}\n\n{full_prompt}"
 
     if grade:
         full_prompt = f"{full_prompt}\n\nLưu ý: Học sinh đang học lớp {grade}."
@@ -181,8 +185,11 @@ async def stream_gemini(
     grade: int = 3,
     language: str = "vi",
     role: str = "student",
+    history: str = "",
 ) -> AsyncGenerator[str, None]:
-    """Stream response từ Gemini. Cache hit → yield single chunk từ Redis; miss → stream + lưu cache."""
+    """Stream response từ Gemini. Cache hit → yield single chunk từ Redis; miss → stream + lưu cache.
+    history: lịch sử hội thoại — không đưa vào cache key, chỉ gửi cho Gemini.
+    """
     cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}:{role}")
 
     try:
@@ -200,6 +207,9 @@ async def stream_gemini(
         full_prompt = f"Dựa vào tài liệu sau:\n{context}\n\nHãy trả lời câu hỏi: {prompt}"
     else:
         full_prompt = prompt
+
+    if history:
+        full_prompt = f"{history}\n\n{full_prompt}"
 
     if grade:
         full_prompt = f"{full_prompt}\n\nLưu ý: Học sinh đang học lớp {grade}."

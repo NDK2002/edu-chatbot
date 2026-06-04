@@ -18,6 +18,89 @@ from backend.services.vector_search import search
 
 log = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Math → dict query builder
+# ---------------------------------------------------------------------------
+
+_VI_NUMBERS: dict[int, str] = {
+    0: "không", 1: "một", 2: "hai", 3: "ba", 4: "bốn", 5: "năm",
+    6: "sáu", 7: "bảy", 8: "tám", 9: "chín", 10: "mười",
+}
+
+_OP_VI: dict[str, str] = {
+    "addition":                   "cộng tổng",
+    "subtraction":                "trừ hiệu",
+    "multiplication":             "nhân tích",
+    "division":                   "chia thương",
+    "multiplication_table":       "bảng nhân",
+    "division_table":             "bảng chia",
+    "arithmetic_expression":      "tính",
+    "rectangle_perimeter":        "chu vi chiều dài chiều rộng hình chữ nhật",
+    "square_perimeter":           "chu vi cạnh hình vuông",
+    "triangle_perimeter":         "chu vi cạnh tam giác",
+    "rectangle_area":             "diện tích chiều dài chiều rộng hình chữ nhật",
+    "square_area":                "diện tích cạnh hình vuông",
+    "triangle_area":              "diện tích đáy chiều cao tam giác",
+    "circle_circumference":       "chu vi bán kính đường kính hình tròn",
+    "circle_area":                "diện tích bán kính hình tròn",
+    "trapezoid_area":             "diện tích đáy chiều cao hình thang",
+    "cube_volume":                "thể tích cạnh hình lập phương",
+    "box_volume":                 "thể tích chiều dài chiều rộng chiều cao hình hộp",
+    "length_conversion":          "đơn vị đo độ dài",
+    "mass_conversion":            "đơn vị đo khối lượng",
+    "time_conversion":            "đơn vị đo thời gian",
+    "area_conversion":            "đơn vị đo diện tích",
+    "speed_from_distance_time":   "vận tốc quãng đường thời gian",
+    "distance_from_speed_time":   "quãng đường vận tốc thời gian",
+    "time_from_distance_speed":   "thời gian quãng đường vận tốc",
+    "percent_of_number":          "phần trăm",
+    "find_percent_rate":          "tỉ số phần trăm",
+    "find_original_from_percent": "số gốc phần trăm",
+}
+
+
+def _build_math_dict_query(formula_key: str, intent_params: dict) -> str:
+    """
+    Xây câu query tiếng Việt tự nhiên để tìm từ điển Tày/Nùng cho bài toán.
+    Số nhỏ (0–10) → chữ tiếng Việt để reranker khớp dictionary entries.
+    """
+    op_terms = _OP_VI.get(formula_key, "toán học")
+    num_words: list[str] = []
+
+    if formula_key == "arithmetic_expression":
+        # Extract tất cả số trong biểu thức, chuyển số ≤ 10 thành chữ
+        expr = intent_params.get("expr", "")
+        ops_in_expr: list[str] = []
+        for op_char, op_vi in (("+", "cộng"), ("-", "trừ"), ("*", "nhân"), ("/", "chia")):
+            if op_char in expr:
+                ops_in_expr.append(op_vi)
+        for raw in re.findall(r"\d+", expr):
+            n = int(raw)
+            if n in _VI_NUMBERS:
+                num_words.append(_VI_NUMBERS[n])
+        op_terms = " ".join(ops_in_expr) if ops_in_expr else "tính"
+    else:
+        for key in ("a", "b", "n"):
+            val = intent_params.get(key)
+            if val is not None:
+                try:
+                    n = int(float(val))
+                    if n in _VI_NUMBERS:
+                        num_words.append(_VI_NUMBERS[n])
+                except (ValueError, TypeError):
+                    pass
+
+    # Bỏ trùng số trong num_words nhưng giữ thứ tự
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for w in num_words:
+        if w not in seen:
+            seen.add(w)
+            deduped.append(w)
+
+    parts = deduped + [op_terms] if deduped else [op_terms]
+    return " ".join(parts)
+
 
 class QueryType(Enum):
     MATH_CALCULATE = "math_calculate"   # bài tính → Rule Engine
@@ -198,10 +281,21 @@ async def orchestrate(
     if qtype == QueryType.MATH_CALCULATE:
         math_result = solve(message)
         if math_result and math_result.ok:
+            # Build dict query từ tên phép tính + số (bảy, tám, nhân...)
+            # thay vì raw query ("7 * 8 =?") để reranker khớp tốt hơn
+            intent = detect(message)
+            dict_query = (
+                _build_math_dict_query(math_result.formula_key, intent.params)
+                if intent else _OP_VI.get(math_result.formula_key, message)
+            )
+            log.info("[ORCHESTRATE] dict_query=%r (formula=%s)", dict_query, math_result.formula_key)
+            dict_res = await search_dictionary(dict_query, direction="vi_to_tay_nung")
             return OrchestrateResult(
                 query_type=qtype,
                 math_result=math_result,
+                dict_context=(dict_res or {}).get("context") or None,
                 retrieval_status="rule_engine",
+                best_dict_rerank=float((dict_res or {}).get("top_rerank_score", 0.0)),
             )
         # Rule Engine không giải được → fallback vector_search lấy lý thuyết Toán
         log.warning(

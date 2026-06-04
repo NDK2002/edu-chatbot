@@ -21,7 +21,6 @@ function vocabEntryToSavedWord(entry: VocabEntry): SavedWord {
 interface Props {
   role: "user" | "bot";
   content: string;
-  steps?: string[];
   vocab?: VocabEntry[];
   source?: string;
   grade?: number;
@@ -64,7 +63,6 @@ function SourceBadge({ source, hasVocab }: { source?: string; hasVocab?: boolean
 export default function ChatBubble({
   role,
   content,
-  steps,
   vocab,
   source,
   grade,
@@ -142,25 +140,7 @@ export default function ChatBubble({
               )}
             </p>
 
-            {isDone && !streaming && steps && steps.length > 0 && (
-              <div className="mt-3 bg-sky-50 border border-sky-100 rounded-xl p-3">
-                <p className="text-xs font-bold text-sky-700 mb-2 flex items-center gap-1">
-                  <span>📝</span> Hướng dẫn giải từng bước
-                </p>
-                <ol className="space-y-1.5">
-                  {steps.map((step, i) => (
-                    <li key={i} className="flex gap-2 text-sm text-gray-700">
-                      <span className="flex-shrink-0 w-5 h-5 bg-sky-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
-                        {i + 1}
-                      </span>
-                      <span className="leading-relaxed">{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-
-            {isDone && !streaming && vocab && vocab.length > 0 && (
+{isDone && !streaming && vocab && vocab.length > 0 && (
               <>
                 <VocabTable vocab={vocab} />
                 <div className="mt-2 flex flex-wrap gap-1.5">

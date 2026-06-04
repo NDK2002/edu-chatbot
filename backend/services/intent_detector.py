@@ -60,6 +60,7 @@ def _normalize(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[×x✕]", "×", text)
     text = re.sub(r"[÷:]", "÷", text)
+    text = re.sub(r"\*", "×", text)   # dấu * cũng là nhân
     text = re.sub(r"\s+", " ", text)
     return text
 
@@ -131,10 +132,17 @@ def _detect_basic_arithmetic(q: str) -> Intent | None:
 def _detect_arithmetic_expression(q: str) -> Intent | None:
     """Nhận dạng biểu thức toán học tổng quát như (2+3)*6, 2+(3*6)."""
     expr = q.replace("×", "*").replace("÷", "/").replace(",", ".")
+    # Bỏ đuôi "= ?" hoặc "=?" (dạng điền vào chỗ trống)
+    expr = re.sub(r"\s*=\s*\??\s*$", "", expr.strip())
     if not re.fullmatch(r"[\d\s\+\-\*\/\(\)\.]+", expr.strip()):
         return None
     # Phải có ít nhất 1 toán tử
     if not re.search(r"[+\-*/]", expr.strip()):
+        return None
+    # Biểu thức đơn giản a op b (không ngoặc, 1 toán tử) → để _detect_basic_arithmetic
+    # xử lý để có formula_key cụ thể hơn (multiplication, addition...)
+    ops = re.findall(r"[+\-*/]", expr)
+    if "(" not in expr and len(ops) == 1:
         return None
     try:
         allowed = {
@@ -412,8 +420,8 @@ _DETECTORS = [
     _detect_speed,
     _detect_percent,
     _detect_unit_conversion,
-    _detect_arithmetic_expression,
-    _detect_basic_arithmetic,
+    _detect_arithmetic_expression,    # biểu thức phức tạp trước (có ngoặc / nhiều toán tử)
+    _detect_basic_arithmetic,         # a op b đơn giản sau — nhận phần còn lại
 ]
 
 
