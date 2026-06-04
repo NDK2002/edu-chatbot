@@ -107,8 +107,24 @@ async def _get_redis():
     return _redis
 
 
-def _cache_key(prompt: str) -> str:
-    return "gemini:" + hashlib.md5(prompt.encode()).hexdigest()
+def _cache_key(raw: str) -> str:
+    return "gemini:" + hashlib.md5(raw.encode()).hexdigest()
+
+
+def build_cache_key(
+    prompt: str,
+    context: str = "",
+    grade: int = 3,
+    language: str = "vi",
+    role: str = "student",
+    history: str = "",
+) -> str:
+    raw = f"{prompt}:{context}:{grade}:{language}:{role}"
+    if history:
+        history_hash = hashlib.md5(history.encode()).hexdigest()[:12]
+        raw = f"{raw}:history:{history_hash}"
+    return _cache_key(raw)
+
 
 def get_system_prompt(role: str = "student") -> str:
     if role == "teacher":
@@ -129,9 +145,17 @@ async def ask_gemini(prompt: str, context: str = "", grade: int = 3, language: s
     """
     Gọi Gemini API với server-side cache qua Redis.
     Cùng prompt → trả kết quả cache, không gọi lại API.
-    history: lịch sử hội thoại — không đưa vào cache key, chỉ gửi cho Gemini.
+    history: lịch sử hội thoại — đưa vào cache key bằng hash ngắn để tránh dùng
+    nhầm cache giữa các cuộc trò chuyện khác ngữ cảnh.
     """
-    cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}:{role}")
+    cache_key = build_cache_key(
+        prompt=prompt,
+        context=context,
+        grade=grade,
+        language=language,
+        role=role,
+        history=history,
+    )
 
     r = await _get_redis()
     cached = await r.get(cache_key)
@@ -188,9 +212,17 @@ async def stream_gemini(
     history: str = "",
 ) -> AsyncGenerator[str, None]:
     """Stream response từ Gemini. Cache hit → yield single chunk từ Redis; miss → stream + lưu cache.
-    history: lịch sử hội thoại — không đưa vào cache key, chỉ gửi cho Gemini.
+    history: lịch sử hội thoại — đưa vào cache key bằng hash ngắn để tránh dùng
+    nhầm cache giữa các cuộc trò chuyện khác ngữ cảnh.
     """
-    cache_key = _cache_key(f"{prompt}:{context}:{grade}:{language}:{role}")
+    cache_key = build_cache_key(
+        prompt=prompt,
+        context=context,
+        grade=grade,
+        language=language,
+        role=role,
+        history=history,
+    )
 
     try:
         r = await _get_redis()
