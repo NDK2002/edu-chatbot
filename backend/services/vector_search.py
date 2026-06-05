@@ -21,7 +21,6 @@ EMBED_URL = os.getenv("EMBED_URL", "https://ai-model.ndk.id.vn/embeddings")
 RERANK_URL = os.getenv("RERANK_URL", "https://ai-model.ndk.id.vn/rerank")
 
 _client = None
-_ai_model_http_client: httpx.AsyncClient | None = None
 
 QUERY_EXPANSIONS: dict[str, str] = {
     "đặt tính nhân": "phép nhân đặt tính thực hiện",
@@ -55,20 +54,6 @@ def get_client() -> QdrantClient:
 
 def _headers() -> dict:
     return {"Authorization": f"Bearer {AI_MODEL_API_KEY}"}
-
-
-def get_ai_model_http_client() -> httpx.AsyncClient:
-    global _ai_model_http_client
-    if _ai_model_http_client is None or _ai_model_http_client.is_closed:
-        _ai_model_http_client = httpx.AsyncClient(timeout=30)
-    return _ai_model_http_client
-
-
-async def close_ai_model_http_client() -> None:
-    global _ai_model_http_client
-    if _ai_model_http_client is not None and not _ai_model_http_client.is_closed:
-        await _ai_model_http_client.aclose()
-    _ai_model_http_client = None
 
 
 def _metadata_value(payload: dict, key: str, default=None):
@@ -272,29 +257,29 @@ def _query_qdrant(
 
 
 async def _embed(text: str) -> list[float]:
-    http = get_ai_model_http_client()
-    resp = await http.post(
-        EMBED_URL,
-        headers=_headers(),
-        json={"model": EMBED_MODEL, "input": text},
-    )
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
+    async with httpx.AsyncClient(timeout=30) as http:
+        resp = await http.post(
+            EMBED_URL,
+            headers=_headers(),
+            json={"model": EMBED_MODEL, "input": text},
+        )
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
 
 
 async def _rerank(query: str, documents: list[str]) -> list[float]:
-    http = get_ai_model_http_client()
-    resp = await http.post(
-        RERANK_URL,
-        headers=_headers(),
-        json={"model": RERANK_MODEL, "query": query, "documents": documents},
-    )
-    resp.raise_for_status()
-    results = resp.json()["results"]
-    rerank_scores = [0.0] * len(documents)
-    for r in results:
-        rerank_scores[r["index"]] = r["relevance_score"]
-    return rerank_scores
+    async with httpx.AsyncClient(timeout=30) as http:
+        resp = await http.post(
+            RERANK_URL,
+            headers=_headers(),
+            json={"model": RERANK_MODEL, "query": query, "documents": documents},
+        )
+        resp.raise_for_status()
+        results = resp.json()["results"]
+        rerank_scores = [0.0] * len(documents)
+        for r in results:
+            rerank_scores[r["index"]] = r["relevance_score"]
+        return rerank_scores
 
 
 async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
