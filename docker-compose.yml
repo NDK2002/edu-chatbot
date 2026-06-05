@@ -1,4 +1,58 @@
 services:
+  infinity-embedding:
+    image: michaelf34/infinity:latest-cpu
+    container_name: infinity-embedding
+    restart: unless-stopped
+    networks:
+      - edu-chatbot-network
+    ports:
+      - "127.0.0.1:7997:7997"
+    volumes:
+      - ./hf-cache:/app/.cache
+    environment:
+      - INFINITY_API_KEY=${INFINITY_API_KEY}
+    command:
+      - v2
+      - --engine
+      - torch
+      - --model-id
+      - AITeamVN/Vietnamese_Embedding
+      - --port
+      - "7997"
+      - --batch-size
+      - "32"
+    deploy:
+      resources:
+        limits:
+          cpus: "6"
+
+  infinity-reranker:
+    image: michaelf34/infinity:latest-cpu
+    container_name: infinity-reranker
+    restart: unless-stopped
+    networks:
+      - edu-chatbot-network
+    ports:
+      - "127.0.0.1:7998:7998"
+    volumes:
+      - ./hf-cache:/app/.cache
+    environment:
+      - INFINITY_API_KEY=${INFINITY_API_KEY}
+    command:
+      - v2
+      - --engine
+      - torch
+      - --model-id
+      - BAAI/bge-reranker-v2-m3
+      - --port
+      - "7998"
+      - --batch-size
+      - "16"
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+
   backend:
     build:
       context: .
@@ -12,6 +66,8 @@ services:
     depends_on:
       - qdrant
       - redis
+      - infinity-embedding
+      - infinity-reranker
     restart: unless-stopped
 
   qdrant:
