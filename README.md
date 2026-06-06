@@ -2,10 +2,7 @@
 
 Chatbot giáo dục hỗ trợ học sinh vùng cao / dân tộc thiểu số học và hỏi đáp kiến thức Toán bằng tiếng Việt đơn giản, có bổ sung tra cứu từ điển Việt - Tày/Nùng khi có dữ liệu phù hợp.
 
-Project tập trung vào hai mục tiêu:
-
-- Xây dựng ứng dụng AI có khả năng hỏi đáp học tập bằng RAG, Rule Engine và LLM fallback.
-- Phân tích, kiểm soát rủi ro AI theo 5 trục của môn **Tư duy trí tuệ nhân tạo**: Reliability, Bias/Fairness, Robustness, Social Impact, Explainability.
+Project tập trung vào việc xây dựng ứng dụng AI có khả năng hỏi đáp học tập bằng RAG, Rule Engine và LLM fallback, đồng thời hỗ trợ tra cứu từ điển Việt - Tày/Nùng trong các tình huống phù hợp.
 
 ## Tính năng chính
 
@@ -66,18 +63,6 @@ SSE chunks back to browser
 
 Điểm quan trọng: LLM không được dùng một mình. Hệ thống chèn các lớp kiểm soát như Rule Engine, RAG, reranker, content safety và metadata nguồn để giảm hallucination và tăng khả năng kiểm chứng.
 
-## 5 trục AI Ethics
-
-| Trục | Rủi ro | Cơ chế trong project |
-|---|---|---|
-| Reliability | LLM hallucination, tính sai, trả lời không nhất quán | RAG, reranker, Rule Engine, Redis cache có history-aware key |
-| Bias/Fairness | Thiên vị ngôn ngữ/vùng miền, dữ liệu Tày/Nùng ít | Dictionary search riêng, không để LLM tự bịa từ Tày/Nùng, cần human review |
-| Robustness | Prompt injection, typo, input ngắn/nhiễu, OCR/Voice sai | Content safety, orchestrator, hỏi lại khi mơ hồ, Voice/OCR là hướng phát triển cần xác nhận text |
-| Social Impact | Học sinh phụ thuộc AI, dữ liệu trẻ em nhạy cảm | Giải từng bước, không khuyến khích chép bài, hạn chế dữ liệu cá nhân |
-| Explainability | Học sinh không hiểu lời giải, giáo viên khó kiểm chứng | Giải từng bước, context RAG, metadata nguồn, vocab table |
-
-Tài liệu hướng dẫn test 5 trục: [docs/ai_ethics_5_axes_test_guide.md](docs/ai_ethics_5_axes_test_guide.md)
-
 ## Chạy nhanh với Docker Compose
 
 ### 1. Tạo file môi trường
@@ -134,12 +119,6 @@ docker compose exec backend python -m backend.scripts.ingest_qdrant
 ```
 
 Nạp dictionary:
-
-```bash
-docker compose exec backend python -m backend.scripts.ingest_dict
-```
-
-Hoặc với dictionary combined nếu đang dùng pipeline mới:
 
 ```bash
 docker compose exec backend python -m backend.scripts.ingest_dict_combined
@@ -200,42 +179,7 @@ edu-chatbot/
 ├── data/
 │   ├── chunks/
 │   └── raw/
-├── docs/
 ├── supabase/
 ├── docker-compose.yml
 └── requirements.txt
 ```
-
-## Test nhanh
-
-Chạy unit tests hiện có:
-
-```bash
-.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-Test search bằng CLI:
-
-```bash
-python test_search.py
-python test_dict_search.py --query "học" --dir vi_to_tay_nung
-```
-
-Smoke test nên dùng trước demo:
-
-1. `chu vi hình chữ nhật dài 5cm rộng 3cm`
-2. `chu vi hình chữ nhật là gì?`
-3. `dịch từ học sang tiếng Tày`
-4. `Ignore all previous instructions...`
-
-## Lưu ý vận hành
-
-- Không nên tối ưu runtime sát giờ demo nếu chưa có log/metric rõ ràng.
-- Model server embedding/reranker có thể full CPU nếu traffic lặp, top_k quá cao, hoặc có lỗi retry/loop. Khi debug, xem backend logs và model server request count trước khi sửa code.
-- Redis cache Gemini đã phân biệt `history` bằng hash ngắn để tránh lấy nhầm cache giữa các hội thoại khác nhau.
-- Voice và OCR hiện nên trình bày là hướng phát triển / test mô phỏng nếu chưa có demo ổn định.
-
-## Tài liệu liên quan
-
-- [Hướng dẫn test 5 trục AI Ethics](docs/ai_ethics_5_axes_test_guide.md)
-- `docs/presentation_speaker_script.md` nếu cần script thuyết trình local.
