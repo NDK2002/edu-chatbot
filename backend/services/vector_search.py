@@ -300,8 +300,8 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
         return {
             "retrieval_status": "no_relevant_context",
             "content": [],
-            "top_vector_scores": 0.0,
-            "top_rerank_scores": None,
+            "top_vector_score": 0.0,
+            "top_rerank_score": None,
         }
 
     log.info(
@@ -327,8 +327,8 @@ async def search(query: str, grade: int = 0, top_k: int = 40) -> dict | None:
         return {
             "retrieval_status": "no_relevant_context",
             "content": [],
-            "top_vector_scores": float(hits[0].score or 0.0),
-            "top_rerank_scores": None,
+            "top_vector_score": float(hits[0].score or 0.0),
+            "top_rerank_score": None,
         }
 
     documents = [
