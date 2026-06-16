@@ -295,7 +295,7 @@ async def ask_gemini_json(prompt: str, role: str = "teacher") -> str:
                 config=types.GenerateContentConfig(
                     system_instruction=get_system_prompt(role),
                     response_mime_type="application/json",
-                    max_output_tokens=2048,
+                    max_output_tokens=8192,
                     temperature=0.3,
                 ),
             )
