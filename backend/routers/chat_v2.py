@@ -10,21 +10,19 @@ import logging
 import re
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.dependencies import get_optional_user
 from backend.services.compactor import compact_conversation, should_compact
 from backend.services.content_safety import is_harmful_content, is_injection_attempt, is_meaningful_question
-from backend.services.gemini import ask_gemini, stream_gemini
+from backend.services.gemini import stream_gemini
 from backend.services.orchestrator import QueryType, orchestrate
 from backend.services.supabase_client import (
     create_conversation,
-    get_or_create_session,
     get_recent_history,
     save_conv_messages,
-    save_messages,
 )
 
 load_dotenv()
@@ -176,25 +174,6 @@ _SSE_HEADERS = {
 
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-# ---------------------------------------------------------------------------
-# Legacy history save (for unauthenticated / session-based flow)
-# ---------------------------------------------------------------------------
-
-async def _save_history_legacy(
-    user_id: str,
-    mode: str,
-    user_msg: str,
-    assistant_msg: str,
-    query_type: str,
-    source: str,
-) -> None:
-    try:
-        session_id = await get_or_create_session(user_id, mode)
-        await save_messages(session_id, user_msg, assistant_msg, query_type, source)
-    except Exception as exc:
-        log.warning("[CHAT_V2] legacy history save failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------

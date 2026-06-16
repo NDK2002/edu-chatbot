@@ -1,5 +1,5 @@
 """
-Router /history — lịch sử chat và từ đã lưu của user đã đăng nhập.
+Router /history — từ đã lưu của user đã đăng nhập.
 Tất cả endpoints đều yêu cầu Bearer token hợp lệ.
 """
 
@@ -21,53 +21,6 @@ def _require_supabase():
     if sb is None:
         raise HTTPException(status_code=503, detail="Dịch vụ lưu trữ chưa sẵn sàng")
     return sb
-
-
-# ---------------------------------------------------------------------------
-# Sessions
-# ---------------------------------------------------------------------------
-
-@router.get("/sessions")
-async def list_sessions(user_id: str = Depends(get_current_user)):
-    """Lấy 20 phiên chat gần nhất của user."""
-    sb = _require_supabase()
-    resp = await asyncio.to_thread(
-        lambda: sb.table("chat_sessions")
-        .select("id, mode, created_at")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(20)
-        .execute()
-    )
-    return resp.data
-
-
-@router.get("/sessions/{session_id}")
-async def get_session_messages(
-    session_id: str,
-    user_id: str = Depends(get_current_user),
-):
-    """Lấy tất cả messages trong một phiên chat."""
-    sb = _require_supabase()
-
-    sess = await asyncio.to_thread(
-        lambda: sb.table("chat_sessions")
-        .select("id")
-        .eq("id", session_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
-    if not sess.data:
-        raise HTTPException(status_code=404, detail="Phiên chat không tồn tại")
-
-    msgs = await asyncio.to_thread(
-        lambda: sb.table("chat_messages")
-        .select("id, role, content, query_type, source, created_at")
-        .eq("session_id", session_id)
-        .order("created_at")
-        .execute()
-    )
-    return msgs.data
 
 
 # ---------------------------------------------------------------------------
