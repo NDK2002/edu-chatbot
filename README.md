@@ -156,7 +156,7 @@ edu-chatbot/
 │   ├── routers/
 │   │   ├── chat_v2.py          # endpoint chat SSE chính
 │   │   ├── conversations.py    # conversation CRUD
-│   │   ├── history.py          # legacy history / saved vocab
+│   │   ├── history.py          # saved vocab
 │   │   ├── solver.py           # solver endpoint
 │   │   └── teacher.py          # giáo viên / lesson plan
 │   ├── services/
@@ -164,9 +164,12 @@ edu-chatbot/
 │   │   ├── vector_search.py    # embedding -> Qdrant -> rerank
 │   │   ├── dictionary_search.py
 │   │   ├── gemini.py
+│   │   ├── compactor.py        # auto-compact lịch sử hội thoại dài
 │   │   ├── content_safety.py
 │   │   ├── intent_detector.py
 │   │   ├── math_rules.py
+│   │   ├── rate_limiter.py
+│   │   ├── translator.py
 │   │   └── supabase_client.py
 │   └── scripts/
 │       ├── ingest_qdrant.py
