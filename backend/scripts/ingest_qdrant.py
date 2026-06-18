@@ -4,8 +4,7 @@ ingest_qdrant.py
 Nạp dữ liệu từ JSONL chunks vào Qdrant.
 
 Cách dùng (chạy 1 lần sau khi crawl xong):
-    python -m backend.scripts.ingest_qdrant --input data/chunks/sgk_chunks.jsonl
-    python -m backend.scripts.ingest_qdrant --input data/chunks/hmong_viet_chunks.jsonl
+    python -m backend.scripts.ingest_qdrant --input data/chunks/theory_chunks.jsonl
 """
 
 import argparse
