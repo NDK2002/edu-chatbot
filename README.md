@@ -112,12 +112,19 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable_key>
 
 > **Lưu ý về AI model server:**
 > - Mặc định dùng server ngoài (`AI_MODEL_URL`). Nếu có API key thì không cần thêm gì.
-> - Nếu muốn chạy embedding/reranker hoàn toàn local: docker-compose đã bao gồm sẵn `infinity-embedding` (port 7997) và `infinity-reranker` (port 7998). Khi đó thêm vào `.env`:
->   ```env
->   EMBED_URL=http://infinity-embedding:7997/embeddings
->   RERANK_URL=http://infinity-reranker:7998/rerank
->   ```
->   Lần đầu khởi động sẽ tải model (~2–4 GB) vào thư mục `hf-cache/`.
+> - Nếu muốn chạy embedding/reranker hoàn toàn local: docker-compose đã bao gồm sẵn `infinity-embedding` (port 7997) và `infinity-reranker` (port 7998). Khi đó:
+>   1. Sinh `INFINITY_API_KEY` — một chuỗi bí mật tự đặt, dùng để bảo vệ endpoint local:
+>      ```bash
+>      python -c "import secrets; print(secrets.token_hex(32))"
+>      ```
+>   2. Thêm vào `.env`:
+>      ```env
+>      INFINITY_API_KEY=<chuỗi vừa sinh>
+>      AI_MODEL_API_KEY=<cùng giá trị với INFINITY_API_KEY>
+>      EMBED_URL=http://infinity-embedding:7997/embeddings
+>      RERANK_URL=http://infinity-reranker:7998/rerank
+>      ```
+>   3. Lần đầu khởi động sẽ tải model (~2–4 GB) vào thư mục `hf-cache/`.
 
 ### 3. Cấu hình Supabase
 
