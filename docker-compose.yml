@@ -24,7 +24,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "6"
+          cpus: "2"
 
   infinity-reranker:
     image: michaelf34/infinity:latest-cpu
@@ -51,7 +51,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "4"
+          cpus: "2"
 
   backend:
     build:
