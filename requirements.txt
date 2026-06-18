@@ -15,6 +15,9 @@ redis==7.4.0
 # Math solver
 sympy==1.14.0
 
+# Embedding (dùng trong ingest_dict_combined để tránh timeout khi ingest lớn)
+sentence-transformers
+
 # Data processing / crawl
 beautifulsoup4==4.14.3
 httpx==0.28.1

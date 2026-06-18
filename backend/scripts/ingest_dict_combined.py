@@ -22,6 +22,7 @@ import os
 import time
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -30,7 +31,6 @@ from qdrant_client.models import (
     PointStruct,
     VectorParams,
 )
-from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
@@ -42,20 +42,26 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION = os.getenv("QDRANT_COLLECTION_DICT", "edu_dictionary")
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "AITeamVN/Vietnamese_Embedding")
+EMBED_URL = os.getenv("EMBED_URL", "https://ai-model.ndk.id.vn/embeddings")
+AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 
-BATCH_SIZE = 64  # local model xử lý được batch lớn hơn
+_headers = {"Authorization": f"Bearer {AI_MODEL_API_KEY}"}
+
+BATCH_SIZE = 32
 MAX_RETRIES = 3
 
-_embed_model: SentenceTransformer | None = None
+# Fallback local model — chỉ load khi remote API fail hết MAX_RETRIES lần
+_local_model = None
 
 
-def get_embed_model() -> SentenceTransformer:
-    global _embed_model
-    if _embed_model is None:
-        print(f"  🔄 Tải model {EMBED_MODEL} ...")
-        _embed_model = SentenceTransformer(EMBED_MODEL)
-        print(f"  ✅ Model loaded")
-    return _embed_model
+def _get_local_model():
+    global _local_model
+    if _local_model is None:
+        from sentence_transformers import SentenceTransformer
+        print(f"  ⚠ Remote API không khả dụng — tải local model {EMBED_MODEL} ...")
+        _local_model = SentenceTransformer(EMBED_MODEL)
+        print("  ✅ Local model loaded (fallback mode)")
+    return _local_model
 
 # Payload indexes cho collection edu_dictionary
 PAYLOAD_INDEXES: list[tuple[str, PayloadSchemaType]] = [
@@ -73,13 +79,41 @@ PAYLOAD_INDEXES: list[tuple[str, PayloadSchemaType]] = [
 # ── Embedding ──────────────────────────────────────────────────────────────────
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    model = get_embed_model()
-    return model.encode(texts, show_progress_bar=False).tolist()
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = httpx.post(
+                EMBED_URL,
+                headers=_headers,
+                json={"model": EMBED_MODEL, "input": texts},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = sorted(resp.json()["data"], key=lambda x: x["index"])
+            return [d["embedding"] for d in data]
+        except Exception as e:
+            if attempt == MAX_RETRIES:
+                print(f"  ⚠ Remote embed thất bại sau {MAX_RETRIES} lần ({e}) — chuyển sang local model")
+                model = _get_local_model()
+                return model.encode(texts, show_progress_bar=False).tolist()
+            time.sleep(attempt * 2)
+    return []  # unreachable
 
 
-def get_vector_dim() -> int:
-    model = get_embed_model()
-    return model.get_embedding_dimension()
+def get_vector_dim(hint: int | None = None) -> int:
+    if hint:
+        return hint
+    # thử remote trước
+    try:
+        resp = httpx.post(
+            EMBED_URL,
+            headers=_headers,
+            json={"model": EMBED_MODEL, "input": ["test"]},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return len(resp.json()["data"][0]["embedding"])
+    except Exception:
+        return _get_local_model().get_sentence_embedding_dimension()
 
 
 # ── Point ID ───────────────────────────────────────────────────────────────────
@@ -120,7 +154,7 @@ def load_records() -> list[dict]:
 
 # ── Ingest ─────────────────────────────────────────────────────────────────────
 
-def ingest(dry_run: bool = False, recreate: bool = False) -> None:
+def ingest(dry_run: bool = False, recreate: bool = False, vector_dim_hint: int | None = None) -> None:
     print(f"📂 Đọc {JSONL_PATH.name} ...")
     records = load_records()
     print(f"  ✅ {len(records)} entries")
@@ -152,7 +186,7 @@ def ingest(dry_run: bool = False, recreate: bool = False) -> None:
         existing = [c for c in existing if c != COLLECTION]
 
     if COLLECTION not in existing:
-        vector_dim = get_vector_dim()
+        vector_dim = get_vector_dim(vector_dim_hint)
         client.create_collection(
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
@@ -234,9 +268,15 @@ def main() -> None:
         action="store_true",
         help="Xoá collection cũ và tạo lại từ đầu",
     )
+    parser.add_argument(
+        "--vector-dim",
+        type=int,
+        default=int(os.getenv("VECTOR_DIM", "1024")),
+        help="Vector dimension (default 1024 cho AITeamVN/Vietnamese_Embedding)",
+    )
     args = parser.parse_args()
 
-    ingest(dry_run=args.dry_run, recreate=args.recreate)
+    ingest(dry_run=args.dry_run, recreate=args.recreate, vector_dim_hint=args.vector_dim)
 
 
 if __name__ == "__main__":
