@@ -47,8 +47,9 @@ AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 
 _headers = {"Authorization": f"Bearer {AI_MODEL_API_KEY}"}
 
-BATCH_SIZE = 32
+BATCH_SIZE = 8   # nhỏ để tránh timeout trên server CPU
 MAX_RETRIES = 3
+EMBED_TIMEOUT = 180  # CPU inference chậm, cần timeout dài hơn 60s
 
 # Fallback local model — chỉ load khi remote API fail hết MAX_RETRIES lần
 _local_model = None
@@ -85,7 +86,7 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
                 EMBED_URL,
                 headers=_headers,
                 json={"model": EMBED_MODEL, "input": texts},
-                timeout=60,
+                timeout=EMBED_TIMEOUT,
             )
             resp.raise_for_status()
             data = sorted(resp.json()["data"], key=lambda x: x["index"])
@@ -93,6 +94,7 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
         except Exception as e:
             if attempt == MAX_RETRIES:
                 print(f"  ⚠ Remote embed thất bại sau {MAX_RETRIES} lần ({e}) — chuyển sang local model")
+                print("  ⚠ Cảnh báo: load local model (~2.3GB) có thể OOM nếu infinity containers đang chạy trên server ít RAM")
                 model = _get_local_model()
                 return model.encode(texts, show_progress_bar=False).tolist()
             time.sleep(attempt * 2)
