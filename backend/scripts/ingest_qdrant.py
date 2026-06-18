@@ -62,7 +62,9 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     return []  # unreachable, satisfies type checker
 
 
-def get_vector_dim() -> int:
+def get_vector_dim(hint: int | None = None) -> int:
+    if hint:
+        return hint
     result = embed_batch(["test"])
     return len(result[0])
 
@@ -100,13 +102,13 @@ def _build_payload(chunk: dict) -> dict:
     }
 
 
-def ingest(input_path: str):
+def ingest(input_path: str, vector_dim_hint: int | None = None):
     client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
     # Create collection if not exists
     existing = [c.name for c in client.get_collections().collections]
     if COLLECTION_MATH not in existing:
-        vector_dim = get_vector_dim()
+        vector_dim = get_vector_dim(vector_dim_hint)
         client.create_collection(
             collection_name=COLLECTION_MATH,
             vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
@@ -168,5 +170,12 @@ def ingest(input_path: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
+    parser.add_argument(
+        "--vector-dim",
+        type=int,
+        default=int(os.getenv("VECTOR_DIM", "768")),
+        help="Vector dimension (default 768 for AITeamVN/Vietnamese_Embedding). "
+             "Skips test-embed call when collection does not yet exist.",
+    )
     args = parser.parse_args()
-    ingest(args.input)
+    ingest(args.input, vector_dim_hint=args.vector_dim)
