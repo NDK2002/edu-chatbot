@@ -91,12 +91,25 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
             resp.raise_for_status()
             data = sorted(resp.json()["data"], key=lambda x: x["index"])
             return [d["embedding"] for d in data]
-        except Exception as e:
+        except httpx.TimeoutException as e:
+            # Service đang chạy nhưng chậm (CPU) — retry, không fallback local
             if attempt == MAX_RETRIES:
-                print(f"  ⚠ Remote embed thất bại sau {MAX_RETRIES} lần ({e}) — chuyển sang local model")
+                raise RuntimeError(
+                    f"Embedding server timeout sau {MAX_RETRIES} lần ({EMBED_TIMEOUT}s mỗi lần). "
+                    "Thử tăng EMBED_TIMEOUT hoặc giảm BATCH_SIZE."
+                ) from e
+            print(f"  ⏳ Timeout lần {attempt}/{MAX_RETRIES} — thử lại sau {attempt * 5}s ...")
+            time.sleep(attempt * 5)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            # Service chưa lên hoặc URL sai — fallback local model
+            if attempt == MAX_RETRIES:
+                print(f"  ⚠ Không kết nối được embedding server ({e}) — chuyển sang local model")
                 print("  ⚠ Cảnh báo: load local model (~2.3GB) có thể OOM nếu infinity containers đang chạy trên server ít RAM")
-                model = _get_local_model()
-                return model.encode(texts, show_progress_bar=False).tolist()
+                return _get_local_model().encode(texts, show_progress_bar=False).tolist()
+            time.sleep(attempt * 2)
+        except Exception:
+            if attempt == MAX_RETRIES:
+                raise
             time.sleep(attempt * 2)
     return []  # unreachable
 
