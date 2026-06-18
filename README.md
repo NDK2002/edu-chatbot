@@ -169,7 +169,7 @@ docker compose up -d --build backend
 
 > **Lưu ý:** Thư mục `data/chunks/` không được commit vào repo (có thể chứa dữ liệu bản quyền SGK). Liên hệ nhóm dự án để lấy file hoặc chạy lại pipeline xử lý từ nguồn gốc.
 
-Khi đã có file JSONL trong `data/chunks/`, nạp vào Qdrant bằng lệnh sau (services phải đang chạy):
+**Services phải đang chạy** trước khi thực hiện các bước sau.
 
 Nạp SGK / math chunks:
 
@@ -179,12 +179,22 @@ docker compose exec backend python -m backend.scripts.ingest_qdrant \
   --vector-dim 1024
 ```
 
-> `--vector-dim 1024` là kích thước vector của model `AITeamVN/Vietnamese_Embedding`. Truyền tường minh để script không cần gọi thêm embedding API khi tạo collection.
+**Nạp dictionary** — có hai cách, chọn một:
 
-Nạp dictionary:
+**Cách 1 — Restore từ snapshot** (khuyến nghị, không cần embedding server):
 
 ```bash
-docker compose exec backend python -m backend.scripts.ingest_dict_combined
+curl -X POST "http://localhost:6333/collections/edu_dictionary/snapshots/upload?priority=snapshot" \
+  -H "Content-Type: multipart/form-data" \
+  -F "snapshot=@edu_dictionary.snapshot"
+```
+
+File `edu_dictionary.snapshot` do nhóm dự án cung cấp kèm source code.
+
+**Cách 2 — Ingest từ JSONL** (cần embedding server đang chạy):
+
+```bash
+docker compose exec backend python -m backend.scripts.ingest_dict_combined --vector-dim 1024
 ```
 
 Kiểm tra mà không ghi vào Qdrant (dry-run):
