@@ -176,10 +176,10 @@ Nạp SGK / math chunks:
 ```bash
 docker compose exec backend python -m backend.scripts.ingest_qdrant \
   --input data/chunks/theory_chunks.jsonl \
-  --vector-dim 768
+  --vector-dim 1024
 ```
 
-> `--vector-dim 768` là kích thước vector của model `AITeamVN/Vietnamese_Embedding`. Truyền tường minh để script không cần gọi thêm embedding API khi tạo collection.
+> `--vector-dim 1024` là kích thước vector của model `AITeamVN/Vietnamese_Embedding`. Truyền tường minh để script không cần gọi thêm embedding API khi tạo collection.
 
 Nạp dictionary:
 

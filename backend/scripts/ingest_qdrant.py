@@ -173,8 +173,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--vector-dim",
         type=int,
-        default=int(os.getenv("VECTOR_DIM", "768")),
-        help="Vector dimension (default 768 for AITeamVN/Vietnamese_Embedding). "
+        default=int(os.getenv("VECTOR_DIM", "1024")),
+        help="Vector dimension (default 1024 for AITeamVN/Vietnamese_Embedding). "
              "Skips test-embed call when collection does not yet exist.",
     )
     args = parser.parse_args()
