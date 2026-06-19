@@ -65,8 +65,21 @@ SSE chunks back to browser
 
 ## Yêu cầu
 
+**Phần mềm:**
 - Docker và Docker Compose (Docker Desktop hoặc Docker Engine ≥ 24)
 - Git
+
+**Phần cứng tối thiểu** (chạy local infinity embedding/reranker):
+
+| | Tối thiểu | Khuyến nghị |
+|---|---|---|
+| CPU | 4 vCPU | 8+ vCPU |
+| RAM | 16 GB | 32 GB |
+| Disk | 40 GB | 60 GB |
+
+Hỗ trợ Linux (Ubuntu 22.04+) và Windows (Docker Desktop với WSL2). Khuyến nghị deploy production trên Linux.
+
+> Nếu dùng AI model server ngoài (`AI_MODEL_URL`) thay vì local infinity, yêu cầu RAM giảm xuống còn ~4 GB.
 
 ## Cài đặt và chạy
 
@@ -151,6 +164,12 @@ Sau khi chạy:
 - Frontend: `http://localhost:3000`
 - Qdrant dashboard: `http://localhost:6333/dashboard`
 - Backend API: chạy nội bộ trong Docker network tại `http://backend:8000`
+
+> **Lưu ý:** `infinity-embedding` và `infinity-reranker` cần **2–5 phút** để load model lần đầu trước khi nhận request. Trong thời gian này chatbot sẽ báo lỗi embedding. Theo dõi tiến trình:
+> ```bash
+> docker compose logs -f infinity-embedding
+> ```
+> Chờ xuất hiện dòng `Application startup complete.` thì hệ thống mới sẵn sàng.
 
 Mặc định `docker-compose.yml` không expose port backend `8000` ra host. Nếu cần xem Swagger `http://localhost:8000/docs`, thêm mapping sau vào service `backend`:
 
